@@ -8,6 +8,7 @@ import MenuManagement from './components/MenuManagement.vue';
 import Analytics from './components/Analytics.vue';
 import LoyaltyManagement from './components/LoyaltyManagement.vue';
 import CustomerView from './components/CustomerView.vue';
+import DriverView from './components/DriverView.vue';
 
 const currentView = ref('dashboard');
 const isMobileMenuOpen = ref(false);
@@ -21,6 +22,7 @@ const menuItems = [
   { id: 'loyalty', label: 'Loyalty Program', icon: '🏆' },
   { id: 'analytics', label: 'Analytics', icon: '📈' },
   { id: 'customer', label: 'Customer View', icon: '🚚' },
+  { id: 'driver', label: 'Driver Portal', icon: '🚗' },
 ];
 
 const viewMap = {
@@ -32,6 +34,7 @@ const viewMap = {
   loyalty: LoyaltyManagement,
   analytics: Analytics,
   customer: CustomerView,
+  driver: DriverView,
 };
 
 const activeComponent = computed(() => viewMap[currentView.value] || Dashboard);

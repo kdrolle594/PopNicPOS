@@ -5,6 +5,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+database
+guidelines
 
 # Runtime data
 pids
@@ -53,8 +55,16 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.env.example
 
 # Aiven CA certificate
 ca.pem
+
+# MCP config (contains credentials)
+.mcp.json
+
+# Claude Code local files (memory, plans)
+.claude/
+CLAUDE.md
 
 

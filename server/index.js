@@ -16,13 +16,17 @@ try {
   console.log(`✔  Connected to MySQL at ${host}`);
   conn.release();
 } catch (err) {
-  console.error('✖  Failed to connect to MySQL:', err.message);
-  process.exit(1);
+  console.warn('MySQL connection failed on startup:', err.message);
+  console.warn('API server will still start; database routes may fail until DB is reachable.');
 }
 
 // ── Express app ────────────────────────────────────────────────────────────────
 const app = express();
-app.use(cors());
+const allowedOrigin = process.env.FRONTEND_URL || '*';
+app.use(cors({
+  origin: allowedOrigin,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+}));
 app.use(express.json());
 
 // Health check
@@ -42,7 +46,13 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/customers', customerRoutes);
 
 // ── Start ──────────────────────────────────────────────────────────────────────
+import { initSocket } from './socket.js';
+import http from 'http';
+
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => {
+const server = http.createServer(app);
+initSocket(server);
+server.listen(PORT, () => {
   console.log(`✔  API server listening on http://localhost:${PORT}`);
 });
+

@@ -10,7 +10,8 @@ function getTier(points) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
+  const base = import.meta.env.VITE_API_URL || '';
+  const res = await fetch(`${base}/api${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
@@ -134,6 +135,20 @@ export function usePosStore() {
     }
   }
 
+  async function updateOrderDriver(orderId, driverName, driverPhone) {
+    try {
+      await api(`/orders/${orderId}/driver`, {
+        method: 'PUT',
+        body: { driverName, driverPhone },
+      });
+      state.orders = state.orders.map((o) =>
+        o.id !== orderId ? o : { ...o, driverName, driverPhone }
+      );
+    } catch (err) {
+      console.error('Failed to assign driver:', err);
+    }
+  }
+
   async function updateOrderStatus(orderId, status) {
     try {
       await api(`/orders/${orderId}/status`, { method: 'PUT', body: { status } });
@@ -187,6 +202,7 @@ export function usePosStore() {
     loadAll,
     addOrder,
     updateOrderStatus,
+    updateOrderDriver,
     addMenuItem,
     updateMenuItem,
     deleteMenuItem,

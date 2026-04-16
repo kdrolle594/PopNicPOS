@@ -23,6 +23,8 @@ router.get('/', async (_req, res) => {
       paymentMethod: order.payment_method,
       pointsEarned: order.points_earned,
       pointsRedeemed: order.points_redeemed,
+      driverName: order.driver_name,
+      driverPhone: order.driver_phone,
       createdAt: order.created_at,
       completedAt: order.completed_at,
       items: items
@@ -172,7 +174,26 @@ router.put('/:id/status', async (req, res) => {
       req.params.id,
     ]);
 
+    const { emitOrderStatusUpdated } = await import('../socket.js');
+    emitOrderStatusUpdated(Number(req.params.id), status);
+
     res.json({ id: Number(req.params.id), status, completedAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/orders/:id/driver — assign driver to a delivery order
+router.put('/:id/driver', async (req, res) => {
+  try {
+    const { driverName, driverPhone } = req.body;
+    await pool.query(
+      'UPDATE customer_order SET driver_name = ?, driver_phone = ? WHERE id = ?',
+      [driverName || null, driverPhone || null, req.params.id]
+    );
+    const { emitOrderDriverAssigned } = await import('../socket.js');
+    emitOrderDriverAssigned(Number(req.params.id), { driverName, driverPhone });
+    res.json({ id: Number(req.params.id), driverName, driverPhone });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

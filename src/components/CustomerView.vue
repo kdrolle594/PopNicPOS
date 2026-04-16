@@ -1,8 +1,20 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onUnmounted, nextTick } from 'vue';
 import { usePosStore } from '../store/usePosStore';
+import { io } from 'socket.io-client';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+// Fix broken default marker icons in Vite builds
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
 
 const { state, addOrder } = usePosStore();
+
+// ── Order placement state (unchanged) ─────────────────────────────────────────
 
 const activeTab = ref('order');
 const selectedCategory = ref('All');
@@ -83,8 +95,7 @@ function isPizzaItem(menuItem) {
 }
 
 function isWingsItem(menuItem) {
-  const name = (menuItem.name || '').toLowerCase();
-  return name.includes('wings');
+  return (menuItem.name || '').toLowerCase().includes('wings');
 }
 
 function isSodaItem(menuItem) {
@@ -112,10 +123,7 @@ function calculateCustomPrice(menuItem, options = {}) {
 }
 
 function formatToppingLabel(value) {
-  return value
-    .split(' ')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+  return value.split(' ').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
 function buildDisplayName(menuItem, options = {}) {
@@ -129,10 +137,7 @@ function buildDisplayName(menuItem, options = {}) {
 }
 
 function applyPizzaPreset(styleValue) {
-  if (styleValue === 'custom') {
-    selectedPizzaStyle.value = 'custom';
-    return;
-  }
+  if (styleValue === 'custom') { selectedPizzaStyle.value = 'custom'; return; }
   const preset = pizzaPresetStyles.find((style) => style.value === styleValue);
   if (!preset) return;
   selectedPizzaStyle.value = preset.value;
@@ -141,7 +146,7 @@ function applyPizzaPreset(styleValue) {
 
 function togglePizzaTopping(toppingValue) {
   if (selectedPizzaToppings.value.includes(toppingValue)) {
-    selectedPizzaToppings.value = selectedPizzaToppings.value.filter((value) => value !== toppingValue);
+    selectedPizzaToppings.value = selectedPizzaToppings.value.filter((v) => v !== toppingValue);
   } else {
     selectedPizzaToppings.value = [...selectedPizzaToppings.value, toppingValue];
   }
@@ -153,13 +158,7 @@ function addConfiguredToCart(menuItem, options = {}) {
   const existing = cart.value.find(
     (item) => item.menuItemId === menuItem.id && optionSignature(item.options) === signature
   );
-
-  if (existing) {
-    existing.quantity += 1;
-    cart.value = [...cart.value];
-    return;
-  }
-
+  if (existing) { existing.quantity += 1; cart.value = [...cart.value]; return; }
   cart.value = [
     ...cart.value,
     {
@@ -176,9 +175,7 @@ function addConfiguredToCart(menuItem, options = {}) {
               options.pizzaToppings?.length ? `Toppings: ${options.pizzaToppings.map(formatToppingLabel).join(', ')}` : null,
               options.wingFlavor ? `Wings Flavor: ${options.wingFlavor}` : null,
               options.sodaFlavor ? `Soda Flavor: ${options.sodaFlavor}` : null,
-            ]
-              .filter(Boolean)
-              .join(' • ')
+            ].filter(Boolean).join(' • ')
           : undefined,
     },
   ];
@@ -188,12 +185,10 @@ function addToCart(menuItem) {
   const needsPizzaCustomization = isPizzaItem(menuItem);
   const needsWingCustomization = isWingsItem(menuItem);
   const needsSodaCustomization = isSodaItem(menuItem);
-
   if (!needsPizzaCustomization && !needsWingCustomization && !needsSodaCustomization) {
     addConfiguredToCart(menuItem);
     return;
   }
-
   pendingMenuItem.value = menuItem;
   selectedPizzaSize.value = 'medium';
   selectedPizzaStyle.value = 'custom';
@@ -205,7 +200,6 @@ function addToCart(menuItem) {
 
 function confirmCustomization() {
   if (!pendingMenuItem.value) return;
-
   const options = {};
   if (isPizzaItem(pendingMenuItem.value)) {
     options.pizzaSize = selectedPizzaSize.value;
@@ -214,7 +208,6 @@ function confirmCustomization() {
   }
   if (isWingsItem(pendingMenuItem.value)) options.wingFlavor = selectedWingFlavor.value;
   if (isSodaItem(pendingMenuItem.value)) options.sodaFlavor = selectedSodaFlavor.value;
-
   addConfiguredToCart(pendingMenuItem.value, options);
   customizationOpen.value = false;
   pendingMenuItem.value = null;
@@ -223,9 +216,7 @@ function confirmCustomization() {
 function updateCartQuantity(cartItem, delta) {
   cart.value = cart.value
     .map((item) => {
-      if (item.menuItemId !== cartItem.menuItemId || optionSignature(item.options) !== optionSignature(cartItem.options)) {
-        return item;
-      }
+      if (item.menuItemId !== cartItem.menuItemId || optionSignature(item.options) !== optionSignature(cartItem.options)) return item;
       return { ...item, quantity: Math.max(1, item.quantity + delta) };
     })
     .filter((item) => item.quantity > 0);
@@ -237,12 +228,11 @@ function removeFromCart(cartItem) {
   );
 }
 
-function placeDeliveryOrder() {
+async function placeDeliveryOrder() {
   if (!customerName.value || !customerPhone.value || !deliveryAddress.value) {
     alert('Name, phone, and delivery address are required.');
     return;
   }
-
   if (!cart.value.length) {
     alert('Please add items to your cart first.');
     return;
@@ -250,7 +240,7 @@ function placeDeliveryOrder() {
 
   const nextOrderNumber = state.orders.length ? Math.max(...state.orders.map((order) => order.orderNumber)) + 1 : 1;
 
-  addOrder({
+  await addOrder({
     id: Date.now().toString(),
     orderNumber: nextOrderNumber,
     items: cart.value,
@@ -264,8 +254,6 @@ function placeDeliveryOrder() {
     createdAt: new Date().toISOString(),
     paymentMethod: 'digital',
   });
-
-  alert(`Delivery order #${nextOrderNumber} placed successfully!`);
 
   cart.value = [];
   deliveryInstructions.value = '';
@@ -282,40 +270,185 @@ function findOrder() {
     alert('Enter order number and phone to track your delivery.');
     return;
   }
-
   const phone = String(trackPhone.value).trim();
-
   trackedOrder.value =
-    [...state.orders]
-      .reverse()
-      .find(
-        (order) =>
-          order.orderType === 'delivery' &&
-          order.orderNumber === orderNumber &&
-          String(order.customerPhone || '').trim() === phone
-      ) || null;
+    [...state.orders].reverse().find(
+      (order) =>
+        order.orderType === 'delivery' &&
+        order.orderNumber === orderNumber &&
+        String(order.customerPhone || '').trim() === phone
+    ) || null;
 
   if (!trackedOrder.value) {
     alert('No matching delivery order found.');
   }
 }
 
-const statusLabelMap = {
-  pending: 'Order Received',
-  preparing: 'Preparing',
-  ready: 'Out for Delivery',
+// ── Live tracker state ─────────────────────────────────────────────────────────
+
+const mapContainer = ref(null);
+const driverLocation = ref(null);
+const customerLatLng = ref(null);
+let leafletMap = null;
+let driverMarker = null;
+let customerMarker = null;
+let trackerSocket = null;
+
+const etaMap = {
+  pending:   'Est. 45–55 min',
+  preparing: 'Est. 30–40 min',
+  ready:     'Est. 10–20 min',
   completed: 'Delivered',
-  cancelled: 'Cancelled',
+  cancelled: 'Order cancelled',
 };
 
-const progressPercent = computed(() => {
-  if (!trackedOrder.value) return 0;
-  const status = trackedOrder.value.status;
-  if (status === 'pending') return 25;
-  if (status === 'preparing') return 50;
-  if (status === 'ready') return 75;
-  if (status === 'completed') return 100;
-  return 0;
+const timelineSteps = [
+  { status: 'pending',   label: 'Order\nReceived' },
+  { status: 'preparing', label: 'Preparing' },
+  { status: 'ready',     label: 'Out for\nDelivery' },
+  { status: 'completed', label: 'Delivered' },
+];
+
+const statusOrder = { pending: 0, preparing: 1, ready: 2, completed: 3 };
+
+function stepState(stepStatus) {
+  const cur = statusOrder[trackedOrder.value?.status] ?? -1;
+  const idx = statusOrder[stepStatus] ?? 0;
+  if (idx < cur) return 'done';
+  if (idx === cur) return 'active';
+  return 'pending';
+}
+
+const timelineLineWidth = computed(() => {
+  const widths = { pending: '0%', preparing: '33%', ready: '66%', completed: '100%' };
+  return widths[trackedOrder.value?.status] || '0%';
+});
+
+const showMap = computed(() =>
+  !!trackedOrder.value && (trackedOrder.value.status === 'ready' || !!driverLocation.value)
+);
+
+// ── Map functions ─────────────────────────────────────────────────────────────
+
+function initMap() {
+  if (leafletMap) { leafletMap.remove(); leafletMap = null; driverMarker = null; customerMarker = null; }
+  if (!mapContainer.value) return;
+  leafletMap = L.map(mapContainer.value).setView([39.8283, -98.5795], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(leafletMap);
+  placeCustomerMarker();
+}
+
+function placeCustomerMarker() {
+  if (!leafletMap || !customerLatLng.value) return;
+  const { lat, lng } = customerLatLng.value;
+  if (customerMarker) customerMarker.remove();
+  const homeIcon = L.divIcon({
+    className: '',
+    html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))">🏠</div>',
+    iconAnchor: [14, 28],
+  });
+  customerMarker = L.marker([lat, lng], { icon: homeIcon }).addTo(leafletMap).bindPopup('Your delivery address');
+  leafletMap.setView([lat, lng], 14);
+}
+
+async function geocodeAddress(address) {
+  if (!address) return;
+  try {
+    const encoded = encodeURIComponent(address);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const data = await res.json();
+    if (data.length) {
+      customerLatLng.value = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      if (leafletMap) placeCustomerMarker();
+    }
+  } catch (e) {
+    console.warn('Geocode failed:', e);
+  }
+}
+
+function updateDriverMarker(lat, lng, driverName) {
+  if (!leafletMap) return;
+  const carIcon = L.divIcon({
+    className: '',
+    html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))">🚗</div>',
+    iconAnchor: [14, 14],
+  });
+  if (!driverMarker) {
+    driverMarker = L.marker([lat, lng], { icon: carIcon }).addTo(leafletMap).bindPopup(driverName || 'Driver');
+  } else {
+    driverMarker.setLatLng([lat, lng]);
+    driverMarker.setPopupContent(driverName || 'Driver');
+  }
+  if (customerMarker) {
+    leafletMap.fitBounds([[lat, lng], customerMarker.getLatLng()], { padding: [40, 40] });
+  } else {
+    leafletMap.panTo([lat, lng]);
+  }
+}
+
+// ── Socket.IO tracker ─────────────────────────────────────────────────────────
+
+function connectTrackerSocket(orderId) {
+  if (trackerSocket) { trackerSocket.disconnect(); trackerSocket = null; }
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  trackerSocket = io(apiUrl);
+  trackerSocket.emit('watchDelivery', { orderId });
+
+  trackerSocket.on('driverLocation', ({ lat, lng, driverName }) => {
+    driverLocation.value = { lat, lng };
+    if (leafletMap) updateDriverMarker(lat, lng, driverName);
+  });
+
+  trackerSocket.on('orderStatusUpdated', ({ orderId: updatedId, status }) => {
+    if (!trackedOrder.value || trackedOrder.value.id !== updatedId) return;
+    trackedOrder.value = { ...trackedOrder.value, status };
+  });
+
+  trackerSocket.on('orderDriverAssigned', ({ orderId: updatedId, driverName, driverPhone }) => {
+    if (!trackedOrder.value || trackedOrder.value.id !== updatedId) return;
+    trackedOrder.value = { ...trackedOrder.value, driverName, driverPhone };
+  });
+}
+
+// ── Watchers ──────────────────────────────────────────────────────────────────
+
+// When a new order is being tracked — connect socket and geocode address
+watch(trackedOrder, (newOrder, oldOrder) => {
+  if (!newOrder || newOrder.orderType !== 'delivery') return;
+  const isNewOrder = !oldOrder || oldOrder.id !== newOrder.id;
+  if (isNewOrder) {
+    connectTrackerSocket(newOrder.id);
+    geocodeAddress(newOrder.deliveryAddress);
+    driverLocation.value = null;
+  }
+});
+
+// When the map should become visible — initialize it
+watch(showMap, async (visible) => {
+  if (!visible) return;
+  await nextTick();
+  if (!leafletMap && mapContainer.value) {
+    initMap();
+  }
+});
+
+// When driver location arrives and map is visible — update marker
+watch(driverLocation, async (loc) => {
+  if (!loc) return;
+  await nextTick();
+  if (!leafletMap && mapContainer.value) initMap();
+  if (leafletMap) updateDriverMarker(loc.lat, loc.lng, trackedOrder.value?.driverName);
+});
+
+onUnmounted(() => {
+  if (trackerSocket) { trackerSocket.disconnect(); trackerSocket = null; }
+  if (leafletMap) { leafletMap.remove(); leafletMap = null; }
 });
 </script>
 
@@ -343,10 +476,10 @@ const progressPercent = computed(() => {
       </button>
     </div>
 
+    <!-- ── Order placement (unchanged layout) ── -->
     <div v-if="activeTab === 'order'" class="grid grid-cols-1 xl:grid-cols-3 gap-6">
       <div class="xl:col-span-2 bg-white border rounded-xl p-4 space-y-4">
         <h2 class="font-semibold">Menu</h2>
-
         <div class="flex flex-wrap gap-2">
           <button
             v-for="category in categories"
@@ -358,7 +491,6 @@ const progressPercent = computed(() => {
             {{ category }}
           </button>
         </div>
-
         <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div v-for="item in availableMenuItems" :key="item.id" class="border rounded-lg p-3 space-y-2">
             <p class="font-medium text-sm">{{ item.name }}</p>
@@ -371,39 +503,24 @@ const progressPercent = computed(() => {
 
       <div class="bg-white border rounded-xl p-4 space-y-4">
         <h2 class="font-semibold">Delivery Details</h2>
-
         <div class="space-y-3">
           <div>
             <label class="block text-sm font-medium mb-1">Name *</label>
             <input v-model="customerName" class="w-full border rounded px-3 py-2" placeholder="Enter full name" />
           </div>
-
           <div>
             <label class="block text-sm font-medium mb-1">Phone *</label>
             <input v-model="customerPhone" class="w-full border rounded px-3 py-2" placeholder="Enter phone" />
           </div>
-
           <div>
             <label class="block text-sm font-medium mb-1">Delivery Address *</label>
-            <textarea
-              v-model="deliveryAddress"
-              rows="3"
-              class="w-full border rounded px-3 py-2"
-              placeholder="Street, city, zip"
-            />
+            <textarea v-model="deliveryAddress" rows="3" class="w-full border rounded px-3 py-2" placeholder="Street, city, zip" />
           </div>
-
           <div>
             <label class="block text-sm font-medium mb-1">Instructions</label>
-            <textarea
-              v-model="deliveryInstructions"
-              rows="2"
-              class="w-full border rounded px-3 py-2"
-              placeholder="Gate code, leave at door, etc."
-            />
+            <textarea v-model="deliveryInstructions" rows="2" class="w-full border rounded px-3 py-2" placeholder="Gate code, leave at door, etc." />
           </div>
         </div>
-
         <div class="border-t pt-3 space-y-2">
           <h3 class="font-medium">Cart</h3>
           <div class="space-y-2 max-h-56 overflow-y-auto">
@@ -426,75 +543,134 @@ const progressPercent = computed(() => {
             </div>
             <p v-if="!cart.length" class="text-sm text-gray-500">No items in cart.</p>
           </div>
-
           <div class="rounded-lg bg-gray-50 border p-3 text-sm flex justify-between">
             <span>Total</span>
             <span class="font-semibold">${{ cartTotal.toFixed(2) }}</span>
           </div>
-
           <button class="w-full px-3 py-2 rounded bg-blue-600 text-white" @click="placeDeliveryOrder">Place Delivery Order</button>
         </div>
       </div>
     </div>
 
-    <div v-if="activeTab === 'track'" class="bg-white border rounded-xl p-4 space-y-4 max-w-2xl">
-      <h2 class="font-semibold">Track Delivery Order</h2>
+    <!-- ── Tracker ── -->
+    <div v-if="activeTab === 'track'" class="bg-white border rounded-xl p-4 space-y-5 max-w-2xl">
+      <h2 class="font-semibold">Track Your Delivery</h2>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium mb-1">Order Number *</label>
-          <input v-model="trackOrderNumber" type="number" min="1" class="w-full border rounded px-3 py-2" placeholder="e.g. 1042" />
+      <!-- Lookup form (shown when no order tracked) -->
+      <div v-if="!trackedOrder" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium mb-1">Order Number *</label>
+            <input v-model="trackOrderNumber" type="number" min="1" class="w-full border rounded px-3 py-2" placeholder="e.g. 1042" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Phone Number *</label>
+            <input v-model="trackPhone" class="w-full border rounded px-3 py-2" placeholder="Same phone used on order" />
+          </div>
         </div>
-
-        <div>
-          <label class="block text-sm font-medium mb-1">Phone Number *</label>
-          <input v-model="trackPhone" class="w-full border rounded px-3 py-2" placeholder="Same phone used on order" />
-        </div>
+        <button class="px-4 py-2 rounded bg-blue-600 text-white" @click="findOrder">Track Order</button>
       </div>
 
-      <button class="px-4 py-2 rounded bg-blue-600 text-white" @click="findOrder">Track Order</button>
+      <!-- Live tracker -->
+      <div v-if="trackedOrder" class="space-y-5">
 
-      <div v-if="trackedOrder" class="border rounded-lg p-4 space-y-3">
+        <!-- Header -->
         <div class="flex items-start justify-between">
           <div>
-            <p class="font-semibold">Order #{{ trackedOrder.orderNumber }}</p>
-            <p class="text-sm text-gray-500">{{ trackedOrder.customerName }} • {{ trackedOrder.customerPhone }}</p>
+            <p class="text-lg font-bold">Order #{{ trackedOrder.orderNumber }}</p>
+            <p class="text-sm text-gray-500">{{ trackedOrder.customerName }}</p>
           </div>
-          <span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-700">
-            {{ statusLabelMap[trackedOrder.status] || trackedOrder.status }}
-          </span>
+          <button class="text-xs text-blue-600 underline" @click="trackedOrder = null">Track different order</button>
         </div>
 
-        <div>
-          <p class="text-sm font-medium">Delivery Address</p>
-          <p class="text-sm text-gray-600">{{ trackedOrder.deliveryAddress || 'N/A' }}</p>
-        </div>
-
-        <div>
-          <p class="text-sm font-medium mb-1">Progress</p>
-          <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div class="h-full bg-blue-600 transition-all" :style="{ width: `${progressPercent}%` }" />
+        <!-- Step timeline -->
+        <div class="relative flex items-start justify-between px-2">
+          <!-- Connector line -->
+          <div class="absolute top-4 left-4 right-4 h-1 bg-gray-200 z-0">
+            <div
+              class="h-full bg-blue-600 transition-all duration-700 ease-in-out"
+              :style="{ width: timelineLineWidth }"
+            />
           </div>
-          <p class="text-xs text-gray-500 mt-1">{{ progressPercent }}% complete</p>
+
+          <div
+            v-for="step in timelineSteps"
+            :key="step.status"
+            class="relative z-10 flex flex-col items-center flex-1"
+          >
+            <!-- Circle -->
+            <div
+              class="w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-500"
+              :class="{
+                'bg-blue-600 border-blue-600 text-white': stepState(step.status) === 'done',
+                'bg-white border-blue-600 text-blue-600 ring-4 ring-blue-100 scale-110': stepState(step.status) === 'active',
+                'bg-white border-gray-300': stepState(step.status) === 'pending',
+              }"
+            >
+              <span v-if="stepState(step.status) === 'done'" class="text-sm">✓</span>
+              <span v-else-if="stepState(step.status) === 'active'" class="w-2.5 h-2.5 bg-blue-600 rounded-full animate-pulse" />
+              <span v-else class="w-2 h-2 bg-gray-300 rounded-full" />
+            </div>
+
+            <!-- Label -->
+            <p
+              class="mt-2 text-xs text-center leading-tight whitespace-pre-line"
+              :class="stepState(step.status) === 'active' ? 'font-semibold text-blue-700' : 'text-gray-500'"
+            >{{ step.label }}</p>
+
+            <!-- ETA under active step -->
+            <p v-if="stepState(step.status) === 'active'" class="mt-0.5 text-xs text-blue-500 text-center">
+              {{ etaMap[trackedOrder.status] }}
+            </p>
+          </div>
         </div>
 
-        <div>
-          <p class="text-sm font-medium mb-1">Items</p>
+        <!-- Delivery address -->
+        <div class="text-sm bg-gray-50 border rounded-lg p-3">
+          <p class="font-medium text-gray-700">Delivering to</p>
+          <p class="text-gray-600">{{ trackedOrder.deliveryAddress || 'N/A' }}</p>
+        </div>
+
+        <!-- Driver info -->
+        <div v-if="trackedOrder.driverName" class="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <span class="text-2xl">🚗</span>
+          <div>
+            <p class="font-semibold text-blue-800">{{ trackedOrder.driverName }} is on the way!</p>
+            <p v-if="trackedOrder.driverPhone" class="text-sm text-blue-600">{{ trackedOrder.driverPhone }}</p>
+          </div>
+        </div>
+        <div v-else-if="trackedOrder.status === 'ready'" class="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
+          <span class="text-2xl">🛵</span>
+          <p class="text-sm text-orange-700 font-medium">Assigning a driver to your order…</p>
+        </div>
+
+        <!-- Live map -->
+        <div v-if="showMap" class="rounded-xl overflow-hidden border" style="height: 300px;">
+          <div ref="mapContainer" style="height: 100%; width: 100%;" />
+        </div>
+        <div v-else-if="trackedOrder.status !== 'completed' && trackedOrder.status !== 'cancelled'" class="rounded-xl bg-gray-50 border flex items-center justify-center" style="height: 120px;">
+          <p class="text-sm text-gray-400">Live map appears when your driver is on the way</p>
+        </div>
+
+        <!-- Order summary -->
+        <div class="border-t pt-4 space-y-2">
+          <p class="text-sm font-medium">Order Summary</p>
           <div class="space-y-1">
-            <div v-for="(item, index) in trackedOrder.items" :key="index" class="text-sm flex justify-between">
+            <div v-for="(item, index) in trackedOrder.items" :key="index" class="text-sm flex justify-between text-gray-700">
               <span>{{ item.name }} ×{{ item.quantity }}</span>
               <span>${{ (item.price * item.quantity).toFixed(2) }}</span>
             </div>
           </div>
+          <div class="text-sm flex justify-between font-semibold border-t pt-2">
+            <span>Total</span>
+            <span>${{ trackedOrder.total.toFixed(2) }}</span>
+          </div>
         </div>
 
-        <div class="text-sm flex justify-between border-t pt-2">
-          <span>Total</span>
-          <span class="font-semibold">${{ trackedOrder.total.toFixed(2) }}</span>
-        </div>
       </div>
     </div>
 
+    <!-- ── Customization modal (unchanged) ── -->
     <div v-if="customizationOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div class="bg-white rounded-xl border w-full max-w-md p-4 space-y-4">
         <h2 class="text-lg font-semibold">Customize {{ pendingMenuItem?.name }}</h2>
@@ -519,28 +695,20 @@ const progressPercent = computed(() => {
               class="px-3 py-2 border rounded text-sm"
               :class="selectedPizzaStyle === 'custom' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''"
               @click="applyPizzaPreset('custom')"
-            >
-              Custom
-            </button>
+            >Custom</button>
             <button
               v-for="style in pizzaPresetStyles"
               :key="style.value"
               class="px-3 py-2 border rounded text-sm"
               :class="selectedPizzaStyle === style.value ? 'bg-blue-50 border-blue-300 text-blue-700' : ''"
               @click="applyPizzaPreset(style.value)"
-            >
-              {{ style.label }}
-            </button>
+            >{{ style.label }}</button>
           </div>
 
           <label class="block text-sm font-medium mt-4 mb-2">Toppings</label>
           <div class="grid grid-cols-2 gap-2">
             <label v-for="topping in pizzaToppingOptions" :key="topping.value" class="flex items-center gap-2 border rounded px-3 py-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                :checked="selectedPizzaToppings.includes(topping.value)"
-                @change="togglePizzaTopping(topping.value)"
-              />
+              <input type="checkbox" :checked="selectedPizzaToppings.includes(topping.value)" @change="togglePizzaTopping(topping.value)" />
               {{ topping.label }}
             </label>
           </div>
@@ -549,18 +717,14 @@ const progressPercent = computed(() => {
         <div v-if="pendingMenuItem && isWingsItem(pendingMenuItem)">
           <label class="block text-sm font-medium mb-2">Wings Flavor</label>
           <select v-model="selectedWingFlavor" class="w-full border rounded px-3 py-2 bg-white">
-            <option v-for="flavor in wingFlavorOptions" :key="flavor.value" :value="flavor.value">
-              {{ flavor.label }}
-            </option>
+            <option v-for="flavor in wingFlavorOptions" :key="flavor.value" :value="flavor.value">{{ flavor.label }}</option>
           </select>
         </div>
 
         <div v-if="pendingMenuItem && isSodaItem(pendingMenuItem)">
           <label class="block text-sm font-medium mb-2">Soda Flavor</label>
           <select v-model="selectedSodaFlavor" class="w-full border rounded px-3 py-2 bg-white">
-            <option v-for="flavor in sodaFlavorOptions" :key="flavor.value" :value="flavor.value">
-              {{ flavor.label }}
-            </option>
+            <option v-for="flavor in sodaFlavorOptions" :key="flavor.value" :value="flavor.value">{{ flavor.label }}</option>
           </select>
         </div>
 
