@@ -199,6 +199,24 @@ async function seed() {
   }
   console.log(`✔  Inserted ${linkCount} recipe links`);
 
+  // ── Seed admin account (links on first Auth0 login by email) ─────────────────
+  const [existingAdmin] = await pool.query(
+    `SELECT id FROM app_user WHERE email = 'admin@popnic.com' LIMIT 1`
+  );
+  if (existingAdmin.length === 0) {
+    const [adminUser] = await pool.query(
+      `INSERT INTO app_user (auth_uid, user_type, display_name, email)
+       VALUES (NULL, 'employee', 'Admin', 'admin@popnic.com')`
+    );
+    await pool.query(
+      `INSERT INTO employee_profile (user_id, role) VALUES (?, 'admin')`,
+      [adminUser.insertId]
+    );
+    console.log('✔  Seeded admin account (admin@popnic.com)');
+  } else {
+    console.log('✔  Admin account already exists — skipping');
+  }
+
   console.log('✔  Seed complete!');
   await pool.end();
 }

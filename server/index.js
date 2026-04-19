@@ -6,6 +6,9 @@ import menuRoutes from './routes/menu.js';
 import inventoryRoutes from './routes/inventory.js';
 import orderRoutes from './routes/orders.js';
 import customerRoutes from './routes/customers.js';
+import authRoutes from './routes/auth.js';
+import usersRoutes from './routes/users.js';
+import { jwtCheck, loadUser, requireRole } from './middleware/auth.js';
 
 // ── Verify DB connection on startup ────────────────────────────────────────────
 try {
@@ -29,7 +32,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Health check
+// ── Health check ───────────────────────────────────────────────────────────────
 app.get('/api/health', async (_req, res) => {
   try {
     const [rows] = await pool.query('SELECT 1 AS ok');
@@ -39,11 +42,34 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// ── API routes ─────────────────────────────────────────────────────────────────
+// ── Auth routes (public + protected /me) ───────────────────────────────────────
+app.use('/api/auth', authRoutes);
+
+// ── Menu items — GET public, mutations require manager+ ───────────────────────
+app.use('/api/menu-items', (req, res, next) => {
+  if (req.method === 'GET') return next();
+  jwtCheck(req, res, () => loadUser(req, res, () => requireRole('manager', 'admin')(req, res, next)));
+});
 app.use('/api/menu-items', menuRoutes);
-app.use('/api/inventory-items', inventoryRoutes);
+
+// ── Orders — protected by role ─────────────────────────────────────────────────
+app.use('/api/orders', jwtCheck, loadUser);
+app.use('/api/orders', (req, res, next) => {
+  if (req.method === 'POST') {
+    return requireRole('customer', 'cashier', 'manager', 'admin')(req, res, next);
+  }
+  return requireRole('customer', 'cashier', 'kitchen', 'manager', 'admin', 'driver')(req, res, next);
+});
 app.use('/api/orders', orderRoutes);
-app.use('/api/customers', customerRoutes);
+
+// ── Inventory — manager+ only ─────────────────────────────────────────────────
+app.use('/api/inventory-items', jwtCheck, loadUser, requireRole('manager', 'admin'), inventoryRoutes);
+
+// ── Customers — manager+ only ─────────────────────────────────────────────────
+app.use('/api/customers', jwtCheck, loadUser, requireRole('manager', 'admin'), customerRoutes);
+
+// ── Users — admin only ────────────────────────────────────────────────────────
+app.use('/api/users', usersRoutes);
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 import { initSocket } from './socket.js';
@@ -55,4 +81,3 @@ initSocket(server);
 server.listen(PORT, () => {
   console.log(`✔  API server listening on http://localhost:${PORT}`);
 });
-

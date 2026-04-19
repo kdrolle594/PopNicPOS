@@ -11,8 +11,22 @@ function getTier(points) {
 
 async function api(path, options = {}) {
   const base = import.meta.env.VITE_API_URL || '';
+
+  // Attach Auth0 access token when available
+  let authHeader = {};
+  try {
+    const { useAuthStore } = await import('./useAuthStore.js');
+    const auth = useAuthStore();
+    if (auth.isAuthenticated.value) {
+      const token = await auth.getToken();
+      authHeader = { Authorization: `Bearer ${token}` };
+    }
+  } catch {
+    // Not authenticated or store not ready — proceed without token (public routes)
+  }
+
   const res = await fetch(`${base}/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });

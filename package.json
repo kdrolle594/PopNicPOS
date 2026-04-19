@@ -10,13 +10,18 @@
     "server": "node server/index.js",
     "start": "concurrently \"node server/index.js\" \"vite\"",
     "seed": "node server/seed.js",
-    "dev:all": "node server/seed.js & vite"
+    "dev:all": "node server/seed.js & vite",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@auth0/auth0-vue": "^2.5.0",
     "chart.js": "^4.5.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-oauth2-jwt-bearer": "^1.8.0",
+    "gh-pages": "^6.3.0",
     "leaflet": "^1.9.4",
     "mcp-server-mysql": "^1.0.42",
     "mysql2": "^3.19.1",
