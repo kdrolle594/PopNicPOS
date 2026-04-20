@@ -5,8 +5,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-database
-guidelines
+database/
+guidelines/
+
+promote-admin.js
 
 # Runtime data
 pids

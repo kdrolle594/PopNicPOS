@@ -1,7 +1,15 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { io } from 'socket.io-client';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
 
 const { user: auth0User } = useAuth0();
 
@@ -20,6 +28,13 @@ const socket = io(apiUrl);
 
 let watchId          = null;
 let locationInterval = null;
+
+// ── Map state ─────────────────────────────────────────────────────────────────
+
+const mapContainer = ref(null);
+let leafletMap = null;
+let customerMarker = null;
+let driverMarker = null;
 
 async function loadDeliveryOrders() {
   loadingOrders.value = true;
@@ -74,17 +89,106 @@ function endDelivery() {
   if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   clearInterval(locationInterval); locationInterval = null;
   socket.emit('leaveDeliveryRoom', { orderId: selectedOrder.value?.id });
+  destroyMap();
   selectedOrder.value = null;
   lastPosition.value  = null;
   step.value = 'select';
   loadDeliveryOrders();
 }
 
+// ── Map functions ─────────────────────────────────────────────────────────────
+
+function openMapsNavigation() {
+  const order = selectedOrder.value;
+  if (!order) return;
+  const hasGps = order.deliveryLat != null && order.deliveryLng != null;
+  const dest = hasGps
+    ? `${order.deliveryLat},${order.deliveryLng}`
+    : encodeURIComponent(order.deliveryAddress || '');
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving`;
+  window.open(url, '_blank', 'noopener');
+}
+
+function initMap() {
+  if (!mapContainer.value || leafletMap) return;
+  const order = selectedOrder.value;
+  const hasCustomerGps = order && order.deliveryLat != null && order.deliveryLng != null;
+  const center = hasCustomerGps
+    ? [Number(order.deliveryLat), Number(order.deliveryLng)]
+    : [39.8283, -98.5795];
+  const zoom = hasCustomerGps ? 15 : 5;
+
+  leafletMap = L.map(mapContainer.value).setView(center, zoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(leafletMap);
+
+  placeCustomerMarker();
+  if (lastPosition.value) placeDriverMarker(lastPosition.value.lat, lastPosition.value.lng);
+}
+
+function placeCustomerMarker() {
+  const order = selectedOrder.value;
+  if (!leafletMap || !order || order.deliveryLat == null || order.deliveryLng == null) return;
+  const lat = Number(order.deliveryLat);
+  const lng = Number(order.deliveryLng);
+  const homeIcon = L.divIcon({
+    className: '',
+    html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))">🏠</div>',
+    iconAnchor: [14, 28],
+  });
+  if (customerMarker) customerMarker.remove();
+  customerMarker = L.marker([lat, lng], { icon: homeIcon })
+    .addTo(leafletMap)
+    .bindPopup(`${order.customerName || 'Customer'}<br/>${order.deliveryAddress || ''}`);
+}
+
+function placeDriverMarker(lat, lng) {
+  if (!leafletMap) return;
+  const carIcon = L.divIcon({
+    className: '',
+    html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))">🚗</div>',
+    iconAnchor: [14, 14],
+  });
+  if (!driverMarker) {
+    driverMarker = L.marker([lat, lng], { icon: carIcon }).addTo(leafletMap).bindPopup('You');
+  } else {
+    driverMarker.setLatLng([lat, lng]);
+  }
+  if (customerMarker) {
+    leafletMap.fitBounds([[lat, lng], customerMarker.getLatLng()], { padding: [40, 40] });
+  } else {
+    leafletMap.panTo([lat, lng]);
+  }
+}
+
+function destroyMap() {
+  if (leafletMap) { leafletMap.remove(); leafletMap = null; }
+  customerMarker = null;
+  driverMarker = null;
+}
+
+// Initialize map when entering tracking step
+watch(step, async (s) => {
+  if (s !== 'tracking') return;
+  await nextTick();
+  initMap();
+});
+
+// Move the driver marker when GPS updates
+watch(lastPosition, async (pos) => {
+  if (!pos || step.value !== 'tracking') return;
+  if (!leafletMap) { await nextTick(); initMap(); }
+  if (leafletMap) placeDriverMarker(pos.lat, pos.lng);
+});
+
 onMounted(loadDeliveryOrders);
 
 onUnmounted(() => {
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   clearInterval(locationInterval);
+  destroyMap();
   socket.disconnect();
 });
 </script>
@@ -117,6 +221,9 @@ onUnmounted(() => {
             </div>
             <p class="text-sm text-gray-600">{{ order.customerName }}</p>
             <p class="text-sm text-gray-500">📍 {{ order.deliveryAddress }}</p>
+            <p v-if="order.deliveryLat != null && order.deliveryLng != null" class="text-xs text-green-700">
+              GPS pin provided
+            </p>
             <button
               class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-medium"
               @click="startDelivery(order)"
@@ -134,7 +241,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Active tracking -->
-      <div v-if="step === 'tracking'" class="space-y-5 text-center">
+      <div v-if="step === 'tracking'" class="space-y-4 text-center">
         <div class="text-5xl animate-bounce">🚗</div>
         <div>
           <h1 class="text-xl font-bold">On Delivery</h1>
@@ -143,11 +250,32 @@ onUnmounted(() => {
 
         <div class="bg-gray-50 border rounded-xl p-3 text-sm text-gray-700 text-left space-y-1">
           <p class="font-medium">Delivering to:</p>
+          <p class="text-gray-600">{{ selectedOrder?.customerName }}</p>
           <p class="text-gray-600">{{ selectedOrder?.deliveryAddress }}</p>
+          <p v-if="selectedOrder?.customerPhone" class="text-gray-500 text-xs">📞 {{ selectedOrder.customerPhone }}</p>
+          <p
+            v-if="selectedOrder?.deliveryLat != null && selectedOrder?.deliveryLng != null"
+            class="text-green-700 text-xs"
+          >
+            📍 {{ Number(selectedOrder.deliveryLat).toFixed(5) }}, {{ Number(selectedOrder.deliveryLng).toFixed(5) }}
+          </p>
+          <p v-else class="text-orange-600 text-xs">No GPS pin — use address for navigation</p>
         </div>
 
+        <!-- Map -->
+        <div class="rounded-xl overflow-hidden border" style="height: 260px;">
+          <div ref="mapContainer" style="height: 100%; width: 100%;" />
+        </div>
+
+        <button
+          class="w-full py-2 rounded-lg border border-blue-300 text-blue-700 text-sm font-medium"
+          @click="openMapsNavigation"
+        >
+          Open in Maps
+        </button>
+
         <div
-          class="rounded-xl p-3 text-sm space-y-1"
+          class="rounded-xl p-3 text-sm space-y-1 text-left"
           :class="lastPosition ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'"
         >
           <p v-if="lastPosition" class="text-green-700 font-medium">GPS Active — Broadcasting location</p>

@@ -29,8 +29,13 @@ const selectedSodaFlavor = ref('coke cola');
 
 const customerName = ref('');
 const customerPhone = ref('');
+const orderType = ref('delivery'); // 'delivery' | 'pickup'
 const deliveryAddress = ref('');
 const deliveryInstructions = ref('');
+const deliveryLat = ref(null);
+const deliveryLng = ref(null);
+const gpsStatus = ref(''); // '', 'locating', 'ok', 'error'
+const gpsError = ref('');
 
 const trackOrderNumber = ref('');
 const trackPhone = ref('');
@@ -228,9 +233,46 @@ function removeFromCart(cartItem) {
   );
 }
 
-async function placeDeliveryOrder() {
-  if (!customerName.value || !customerPhone.value || !deliveryAddress.value) {
-    alert('Name, phone, and delivery address are required.');
+function captureCurrentLocation() {
+  if (!('geolocation' in navigator)) {
+    gpsStatus.value = 'error';
+    gpsError.value = 'GPS is not available on this device.';
+    return;
+  }
+  gpsStatus.value = 'locating';
+  gpsError.value = '';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      deliveryLat.value = pos.coords.latitude;
+      deliveryLng.value = pos.coords.longitude;
+      gpsStatus.value = 'ok';
+    },
+    (err) => {
+      gpsStatus.value = 'error';
+      gpsError.value = err.message || 'Unable to get location. Please allow location access.';
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
+function clearGpsLocation() {
+  deliveryLat.value = null;
+  deliveryLng.value = null;
+  gpsStatus.value = '';
+  gpsError.value = '';
+}
+
+async function placeOrder() {
+  if (!customerName.value || !customerPhone.value) {
+    alert('Name and phone are required.');
+    return;
+  }
+  if (orderType.value === 'delivery' && !deliveryAddress.value) {
+    alert('Delivery address is required.');
+    return;
+  }
+  if (orderType.value === 'delivery' && (deliveryLat.value == null || deliveryLng.value == null)) {
+    alert('Please share your GPS location so the driver can find you.');
     return;
   }
   if (!cart.value.length) {
@@ -239,6 +281,7 @@ async function placeDeliveryOrder() {
   }
 
   const nextOrderNumber = state.orders.length ? Math.max(...state.orders.map((order) => order.orderNumber)) + 1 : 1;
+  const isDelivery = orderType.value === 'delivery';
 
   await addOrder({
     id: Date.now().toString(),
@@ -246,10 +289,12 @@ async function placeDeliveryOrder() {
     items: cart.value,
     total: cartTotal.value,
     status: 'pending',
-    orderType: 'delivery',
+    orderType: orderType.value,
     customerName: customerName.value,
     customerPhone: customerPhone.value,
-    deliveryAddress: deliveryAddress.value,
+    deliveryAddress: isDelivery ? deliveryAddress.value : null,
+    deliveryLat: isDelivery ? deliveryLat.value : null,
+    deliveryLng: isDelivery ? deliveryLng.value : null,
     notes: deliveryInstructions.value || undefined,
     createdAt: new Date().toISOString(),
     paymentMethod: 'digital',
@@ -257,6 +302,7 @@ async function placeDeliveryOrder() {
 
   cart.value = [];
   deliveryInstructions.value = '';
+  clearGpsLocation();
 
   activeTab.value = 'track';
   trackOrderNumber.value = String(nextOrderNumber);
@@ -267,20 +313,20 @@ async function placeDeliveryOrder() {
 function findOrder() {
   const orderNumber = Number(trackOrderNumber.value);
   if (!orderNumber || !trackPhone.value) {
-    alert('Enter order number and phone to track your delivery.');
+    alert('Enter order number and phone to track your order.');
     return;
   }
   const phone = String(trackPhone.value).trim();
   trackedOrder.value =
     [...state.orders].reverse().find(
       (order) =>
-        order.orderType === 'delivery' &&
+        (order.orderType === 'delivery' || order.orderType === 'pickup') &&
         order.orderNumber === orderNumber &&
         String(order.customerPhone || '').trim() === phone
     ) || null;
 
   if (!trackedOrder.value) {
-    alert('No matching delivery order found.');
+    alert('No matching order found.');
   }
 }
 
@@ -294,20 +340,41 @@ let driverMarker = null;
 let customerMarker = null;
 let trackerSocket = null;
 
-const etaMap = {
-  pending:   'Est. 45–55 min',
-  preparing: 'Est. 30–40 min',
-  ready:     'Est. 10–20 min',
-  completed: 'Delivered',
-  cancelled: 'Order cancelled',
-};
+const etaMap = computed(() => {
+  if (trackedOrder.value?.orderType === 'pickup') {
+    return {
+      pending:   'Est. 20–30 min',
+      preparing: 'Est. 10–20 min',
+      ready:     'Ready for pickup',
+      completed: 'Picked up',
+      cancelled: 'Order cancelled',
+    };
+  }
+  return {
+    pending:   'Est. 45–55 min',
+    preparing: 'Est. 30–40 min',
+    ready:     'Est. 10–20 min',
+    completed: 'Delivered',
+    cancelled: 'Order cancelled',
+  };
+});
 
-const timelineSteps = [
-  { status: 'pending',   label: 'Order\nReceived' },
-  { status: 'preparing', label: 'Preparing' },
-  { status: 'ready',     label: 'Out for\nDelivery' },
-  { status: 'completed', label: 'Delivered' },
-];
+const timelineSteps = computed(() => {
+  if (trackedOrder.value?.orderType === 'pickup') {
+    return [
+      { status: 'pending',   label: 'Order\nReceived' },
+      { status: 'preparing', label: 'Preparing' },
+      { status: 'ready',     label: 'Ready for\nPickup' },
+      { status: 'completed', label: 'Picked Up' },
+    ];
+  }
+  return [
+    { status: 'pending',   label: 'Order\nReceived' },
+    { status: 'preparing', label: 'Preparing' },
+    { status: 'ready',     label: 'Out for\nDelivery' },
+    { status: 'completed', label: 'Delivered' },
+  ];
+});
 
 const statusOrder = { pending: 0, preparing: 1, ready: 2, completed: 3 };
 
@@ -325,7 +392,9 @@ const timelineLineWidth = computed(() => {
 });
 
 const showMap = computed(() =>
-  !!trackedOrder.value && (trackedOrder.value.status === 'ready' || !!driverLocation.value)
+  !!trackedOrder.value &&
+  trackedOrder.value.orderType === 'delivery' &&
+  (trackedOrder.value.status === 'ready' || !!driverLocation.value)
 );
 
 // ── Map functions ─────────────────────────────────────────────────────────────
@@ -418,14 +487,20 @@ function connectTrackerSocket(orderId) {
 
 // ── Watchers ──────────────────────────────────────────────────────────────────
 
-// When a new order is being tracked — connect socket and geocode address
+// When a new order is being tracked — connect socket and resolve customer location
 watch(trackedOrder, (newOrder, oldOrder) => {
   if (!newOrder || newOrder.orderType !== 'delivery') return;
   const isNewOrder = !oldOrder || oldOrder.id !== newOrder.id;
   if (isNewOrder) {
     connectTrackerSocket(newOrder.id);
-    geocodeAddress(newOrder.deliveryAddress);
     driverLocation.value = null;
+    if (newOrder.deliveryLat != null && newOrder.deliveryLng != null) {
+      customerLatLng.value = { lat: Number(newOrder.deliveryLat), lng: Number(newOrder.deliveryLng) };
+      if (leafletMap) placeCustomerMarker();
+    } else {
+      customerLatLng.value = null;
+      geocodeAddress(newOrder.deliveryAddress);
+    }
   }
 });
 
@@ -455,8 +530,8 @@ onUnmounted(() => {
 <template>
   <div class="p-6 space-y-6">
     <div>
-      <h1 class="text-3xl font-bold">Customer Delivery</h1>
-      <p class="text-gray-500">Place and track delivery orders</p>
+      <h1 class="text-3xl font-bold">Customer Orders</h1>
+      <p class="text-gray-500">Place and track pickup or delivery orders</p>
     </div>
 
     <div class="flex gap-2">
@@ -465,14 +540,14 @@ onUnmounted(() => {
         :class="activeTab === 'order' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'"
         @click="activeTab = 'order'"
       >
-        Place Delivery Order
+        Place Order
       </button>
       <button
         class="px-4 py-2 rounded border"
         :class="activeTab === 'track' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'"
         @click="activeTab = 'track'"
       >
-        Track Delivery
+        Track Order
       </button>
     </div>
 
@@ -502,7 +577,26 @@ onUnmounted(() => {
       </div>
 
       <div class="bg-white border rounded-xl p-4 space-y-4">
-        <h2 class="font-semibold">Delivery Details</h2>
+        <h2 class="font-semibold">Order Details</h2>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Order Type *</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="px-3 py-2 rounded border text-sm"
+              :class="orderType === 'pickup' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'"
+              @click="orderType = 'pickup'"
+            >🏬 Pickup</button>
+            <button
+              type="button"
+              class="px-3 py-2 rounded border text-sm"
+              :class="orderType === 'delivery' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'"
+              @click="orderType = 'delivery'"
+            >🚗 Delivery</button>
+          </div>
+        </div>
+
         <div class="space-y-3">
           <div>
             <label class="block text-sm font-medium mb-1">Name *</label>
@@ -512,14 +606,43 @@ onUnmounted(() => {
             <label class="block text-sm font-medium mb-1">Phone *</label>
             <input v-model="customerPhone" class="w-full border rounded px-3 py-2" placeholder="Enter phone" />
           </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Delivery Address *</label>
-            <textarea v-model="deliveryAddress" rows="3" class="w-full border rounded px-3 py-2" placeholder="Street, city, zip" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Instructions</label>
-            <textarea v-model="deliveryInstructions" rows="2" class="w-full border rounded px-3 py-2" placeholder="Gate code, leave at door, etc." />
-          </div>
+
+          <template v-if="orderType === 'delivery'">
+            <div>
+              <label class="block text-sm font-medium mb-1">Delivery Address *</label>
+              <textarea v-model="deliveryAddress" rows="3" class="w-full border rounded px-3 py-2" placeholder="Street, apartment/unit, city, zip" />
+            </div>
+            <div class="border rounded-lg p-3 space-y-2 bg-gray-50">
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-sm font-medium">GPS Location *</p>
+                <button
+                  type="button"
+                  class="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-60"
+                  :disabled="gpsStatus === 'locating'"
+                  @click="captureCurrentLocation"
+                >
+                  {{ gpsStatus === 'locating' ? 'Locating…' : (deliveryLat != null ? 'Update Location' : 'Use My Location') }}
+                </button>
+              </div>
+              <p v-if="gpsStatus === 'ok' && deliveryLat != null" class="text-xs text-green-700">
+                📍 Location captured ({{ deliveryLat.toFixed(5) }}, {{ deliveryLng.toFixed(5) }})
+                <button type="button" class="ml-2 underline text-gray-500" @click="clearGpsLocation">clear</button>
+              </p>
+              <p v-else-if="gpsStatus === 'error'" class="text-xs text-red-600">{{ gpsError }}</p>
+              <p v-else class="text-xs text-gray-500">Share your location so the driver can find you precisely.</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Delivery Instructions</label>
+              <textarea v-model="deliveryInstructions" rows="2" class="w-full border rounded px-3 py-2" placeholder="Gate code, apartment number, leave at door, etc." />
+            </div>
+          </template>
+
+          <template v-else>
+            <div>
+              <label class="block text-sm font-medium mb-1">Pickup Notes</label>
+              <textarea v-model="deliveryInstructions" rows="2" class="w-full border rounded px-3 py-2" placeholder="Anything we should know for pickup" />
+            </div>
+          </template>
         </div>
         <div class="border-t pt-3 space-y-2">
           <h3 class="font-medium">Cart</h3>
@@ -547,7 +670,9 @@ onUnmounted(() => {
             <span>Total</span>
             <span class="font-semibold">${{ cartTotal.toFixed(2) }}</span>
           </div>
-          <button class="w-full px-3 py-2 rounded bg-blue-600 text-white" @click="placeDeliveryOrder">Place Delivery Order</button>
+          <button class="w-full px-3 py-2 rounded bg-blue-600 text-white" @click="placeOrder">
+            {{ orderType === 'pickup' ? 'Place Pickup Order' : 'Place Delivery Order' }}
+          </button>
         </div>
       </div>
     </div>
@@ -573,6 +698,12 @@ onUnmounted(() => {
 
       <!-- Live tracker -->
       <div v-if="trackedOrder" class="space-y-5">
+        <span
+          class="inline-block text-xs px-2 py-1 rounded-full font-medium"
+          :class="trackedOrder.orderType === 'pickup' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'"
+        >
+          {{ trackedOrder.orderType === 'pickup' ? '🏬 Pickup Order' : '🚗 Delivery Order' }}
+        </span>
 
         <!-- Header -->
         <div class="flex items-start justify-between">
@@ -625,30 +756,41 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Delivery address -->
-        <div class="text-sm bg-gray-50 border rounded-lg p-3">
+        <!-- Address / pickup summary -->
+        <div v-if="trackedOrder.orderType === 'delivery'" class="text-sm bg-gray-50 border rounded-lg p-3">
           <p class="font-medium text-gray-700">Delivering to</p>
           <p class="text-gray-600">{{ trackedOrder.deliveryAddress || 'N/A' }}</p>
+          <p v-if="trackedOrder.deliveryLat != null && trackedOrder.deliveryLng != null" class="text-xs text-gray-500 mt-1">
+            📍 {{ Number(trackedOrder.deliveryLat).toFixed(5) }}, {{ Number(trackedOrder.deliveryLng).toFixed(5) }}
+          </p>
+        </div>
+        <div v-else class="text-sm bg-gray-50 border rounded-lg p-3">
+          <p class="font-medium text-gray-700">Pickup at the restaurant</p>
+          <p class="text-gray-600">We'll let you know when your order is ready.</p>
         </div>
 
-        <!-- Driver info -->
-        <div v-if="trackedOrder.driverName" class="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <!-- Driver info (delivery only) -->
+        <div v-if="trackedOrder.orderType === 'delivery' && trackedOrder.driverName" class="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
           <span class="text-2xl">🚗</span>
           <div>
             <p class="font-semibold text-blue-800">{{ trackedOrder.driverName }} is on the way!</p>
             <p v-if="trackedOrder.driverPhone" class="text-sm text-blue-600">{{ trackedOrder.driverPhone }}</p>
           </div>
         </div>
-        <div v-else-if="trackedOrder.status === 'ready'" class="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
+        <div v-else-if="trackedOrder.orderType === 'delivery' && trackedOrder.status === 'ready'" class="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
           <span class="text-2xl">🛵</span>
           <p class="text-sm text-orange-700 font-medium">Assigning a driver to your order…</p>
         </div>
 
-        <!-- Live map -->
+        <!-- Live map (delivery only) -->
         <div v-if="showMap" class="rounded-xl overflow-hidden border" style="height: 300px;">
           <div ref="mapContainer" style="height: 100%; width: 100%;" />
         </div>
-        <div v-else-if="trackedOrder.status !== 'completed' && trackedOrder.status !== 'cancelled'" class="rounded-xl bg-gray-50 border flex items-center justify-center" style="height: 120px;">
+        <div
+          v-else-if="trackedOrder.orderType === 'delivery' && trackedOrder.status !== 'completed' && trackedOrder.status !== 'cancelled'"
+          class="rounded-xl bg-gray-50 border flex items-center justify-center"
+          style="height: 120px;"
+        >
           <p class="text-sm text-gray-400">Live map appears when your driver is on the way</p>
         </div>
 

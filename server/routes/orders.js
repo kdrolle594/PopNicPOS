@@ -19,6 +19,8 @@ router.get('/', async (_req, res) => {
       customerPhone: order.customer_phone,
       tableNumber: order.table_number,
       deliveryAddress: order.delivery_address,
+      deliveryLat: order.delivery_lat != null ? Number(order.delivery_lat) : null,
+      deliveryLng: order.delivery_lng != null ? Number(order.delivery_lng) : null,
       notes: order.notes,
       paymentMethod: order.payment_method,
       pointsEarned: order.points_earned,
@@ -64,6 +66,8 @@ router.post('/', async (req, res) => {
       customerPhone,
       tableNumber,
       deliveryAddress,
+      deliveryLat,
+      deliveryLng,
       notes,
       paymentMethod,
       pointsEarned,
@@ -75,8 +79,9 @@ router.post('/', async (req, res) => {
     const [orderResult] = await conn.query(
       `INSERT INTO customer_order
          (order_number, order_type, status, total, customer_name, customer_phone,
-          table_number, delivery_address, notes, payment_method, points_earned, points_redeemed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          table_number, delivery_address, delivery_lat, delivery_lng,
+          notes, payment_method, points_earned, points_redeemed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         orderNumber,
         orderType || 'dine_in',
@@ -86,6 +91,8 @@ router.post('/', async (req, res) => {
         customerPhone || null,
         tableNumber || null,
         deliveryAddress || null,
+        deliveryLat != null ? Number(deliveryLat) : null,
+        deliveryLng != null ? Number(deliveryLng) : null,
         notes || null,
         paymentMethod || null,
         pointsEarned || 0,
@@ -146,6 +153,8 @@ router.post('/', async (req, res) => {
       customerPhone: customerPhone || null,
       tableNumber: tableNumber || null,
       deliveryAddress: deliveryAddress || null,
+      deliveryLat: deliveryLat != null ? Number(deliveryLat) : null,
+      deliveryLng: deliveryLng != null ? Number(deliveryLng) : null,
       notes: notes || null,
       paymentMethod: paymentMethod || null,
       pointsEarned: pointsEarned || 0,
