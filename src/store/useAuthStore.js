@@ -32,13 +32,11 @@ export function useAuthStore() {
     error: null,
   });
 
-  // Auth0 composable — must be called inside setup() context.
-  // We store a reference lazily on first use.
-  let _auth0 = null;
-  function auth0() {
-    if (!_auth0) _auth0 = useAuth0();
-    return _auth0;
-  }
+  // Must be called during setup context (first invocation of useAuthStore
+  // happens from App.vue's setup). Lazy init previously failed inside event
+  // handlers where inject() has no active instance.
+  const _auth0 = useAuth0();
+  function auth0() { return _auth0; }
 
   const isAuthenticated = computed(() => auth0().isAuthenticated.value);
   const isLoading       = computed(() => auth0().isLoading.value);
