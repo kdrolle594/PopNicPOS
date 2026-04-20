@@ -52,24 +52,22 @@ export function usePosStore() {
     loading: true,
   });
 
-  // Fetch all collections from the API on first access
+  // Fetch all collections from the API on first access. Some endpoints are
+  // role-gated (inventory + customers are manager+), so use allSettled and
+  // tolerate 403s — the view that would need the data is role-gated anyway.
   async function loadAll() {
-    try {
-      const [menuItems, inventoryItems, orders, loyaltyCustomers] = await Promise.all([
-        api('/menu-items'),
-        api('/inventory-items'),
-        api('/orders'),
-        api('/customers'),
-      ]);
-      state.menuItems = menuItems;
-      state.inventoryItems = inventoryItems;
-      state.orders = orders;
-      state.loyaltyCustomers = loyaltyCustomers;
-    } catch (err) {
-      console.error('Failed to load data from API:', err);
-    } finally {
-      state.loading = false;
-    }
+    const results = await Promise.allSettled([
+      api('/menu-items'),
+      api('/inventory-items'),
+      api('/orders'),
+      api('/customers'),
+    ]);
+    const [menuItems, inventoryItems, orders, loyaltyCustomers] = results;
+    if (menuItems.status === 'fulfilled')        state.menuItems = menuItems.value;
+    if (inventoryItems.status === 'fulfilled')   state.inventoryItems = inventoryItems.value;
+    if (orders.status === 'fulfilled')           state.orders = orders.value;
+    if (loyaltyCustomers.status === 'fulfilled') state.loyaltyCustomers = loyaltyCustomers.value;
+    state.loading = false;
   }
   loadAll();
 
