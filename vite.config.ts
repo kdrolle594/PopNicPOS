@@ -6,7 +6,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   // GitHub Pages project pages are served at /REPO-NAME/ — replace with your actual repo name
   // Leave as '/' for custom domains or when using Vercel
-  base: process.env.NODE_ENV === 'production' ? (process.env.VITE_BASE_PATH || '/PopNicPOS') : '/PopNicPOS',
+  base: process.env.NODE_ENV === 'production' ? (process.env.VITE_BASE_PATH || '/PopNicPOS/') : '/PopNicPOS/',
   plugins: [
     vue(),
     tailwindcss(),
