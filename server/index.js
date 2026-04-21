@@ -65,8 +65,13 @@ app.use('/api/orders', orderRoutes);
 // ── Inventory — manager+ only ─────────────────────────────────────────────────
 app.use('/api/inventory-items', jwtCheck, loadUser, requireRole('manager', 'admin'), inventoryRoutes);
 
-// ── Customers — manager+ only ─────────────────────────────────────────────────
-app.use('/api/customers', jwtCheck, loadUser, requireRole('manager', 'admin'), customerRoutes);
+// ── Customers — /me for any authenticated user; list/CRUD manager+ ───────────
+app.use('/api/customers', jwtCheck, loadUser);
+app.use('/api/customers', (req, res, next) => {
+  if (req.path === '/me') return next();
+  return requireRole('manager', 'admin')(req, res, next);
+});
+app.use('/api/customers', customerRoutes);
 
 // ── Users — admin only ────────────────────────────────────────────────────────
 app.use('/api/users', usersRoutes);

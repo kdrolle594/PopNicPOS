@@ -10,6 +10,77 @@ function getTier(points) {
   return 'bronze';
 }
 
+// GET /api/customers/me — the authenticated customer's own profile
+router.get('/me', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.id, u.display_name, u.phone, u.email,
+              cp.loyalty_points, cp.loyalty_tier, cp.total_spent,
+              cp.orders_count, cp.joined_date, cp.last_visit
+       FROM app_user u
+       JOIN customer_profile cp ON cp.user_id = u.id
+       WHERE u.id = ?`,
+      [req.user.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'No customer profile for this user' });
+    }
+    const r = rows[0];
+    res.json({
+      id: r.id,
+      name: r.display_name,
+      phone: r.phone,
+      email: r.email,
+      points: r.loyalty_points,
+      tier: r.loyalty_tier,
+      totalSpent: Number(r.total_spent),
+      ordersCount: r.orders_count,
+      joinedDate: r.joined_date,
+      lastVisit: r.last_visit,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/customers/me — update self-editable fields only
+router.put('/me', async (req, res) => {
+  try {
+    const { name, phone, email } = req.body;
+    await pool.query(
+      `UPDATE app_user SET display_name = ?, phone = ?, email = ? WHERE id = ?`,
+      [name, phone || null, email || null, req.user.id]
+    );
+    const [rows] = await pool.query(
+      `SELECT u.id, u.display_name, u.phone, u.email,
+              cp.loyalty_points, cp.loyalty_tier, cp.total_spent,
+              cp.orders_count, cp.joined_date, cp.last_visit
+       FROM app_user u
+       JOIN customer_profile cp ON cp.user_id = u.id
+       WHERE u.id = ?`,
+      [req.user.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'No customer profile for this user' });
+    }
+    const r = rows[0];
+    res.json({
+      id: r.id,
+      name: r.display_name,
+      phone: r.phone,
+      email: r.email,
+      points: r.loyalty_points,
+      tier: r.loyalty_tier,
+      totalSpent: Number(r.total_spent),
+      ordersCount: r.orders_count,
+      joinedDate: r.joined_date,
+      lastVisit: r.last_visit,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/customers — list loyalty customers (app_user + customer_profile)
 router.get('/', async (_req, res) => {
   try {

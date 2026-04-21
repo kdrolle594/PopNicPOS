@@ -4,9 +4,15 @@ import pool from '../db.js';
 const router = Router();
 
 // GET /api/orders — list all orders with line items
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const [orders] = await pool.query('SELECT * FROM customer_order ORDER BY created_at DESC');
+    const isCustomer = req.user?.role === 'customer';
+    const [orders] = isCustomer
+      ? await pool.query(
+          'SELECT * FROM customer_order WHERE customer_user_id = ? ORDER BY created_at DESC',
+          [req.user.id]
+        )
+      : await pool.query('SELECT * FROM customer_order ORDER BY created_at DESC');
     const [items] = await pool.query('SELECT * FROM order_item ORDER BY id');
 
     const result = orders.map((order) => ({
@@ -78,15 +84,16 @@ router.post('/', async (req, res) => {
     // Insert order header
     const [orderResult] = await conn.query(
       `INSERT INTO customer_order
-         (order_number, order_type, status, total, customer_name, customer_phone,
+         (order_number, order_type, status, total, customer_user_id, customer_name, customer_phone,
           table_number, delivery_address, delivery_lat, delivery_lng,
           notes, payment_method, points_earned, points_redeemed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         orderNumber,
         orderType || 'dine_in',
         status || 'pending',
         total,
+        req.user?.id || null,
         customerName || null,
         customerPhone || null,
         tableNumber || null,
@@ -143,7 +150,7 @@ router.post('/', async (req, res) => {
 
     await conn.commit();
 
-    res.status(201).json({
+    const responseOrder = {
       id: orderId,
       orderNumber,
       orderType: orderType || 'dine_in',
@@ -162,7 +169,12 @@ router.post('/', async (req, res) => {
       createdAt: new Date().toISOString(),
       completedAt: null,
       items: items || [],
-    });
+    };
+
+    const { emitNewOrder } = await import('../socket.js');
+    emitNewOrder(responseOrder);
+
+    res.status(201).json(responseOrder);
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ error: err.message });
