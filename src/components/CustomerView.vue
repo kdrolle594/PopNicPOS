@@ -17,6 +17,7 @@ const { state, addOrder, fetchMe, updateMe } = usePosStore();
 const profileLoaded = ref(false);
 const phoneInput = ref('');
 const savingPhone = ref(false);
+const placingOrder = ref(false);
 
 onMounted(async () => {
   const me = await fetchMe();
@@ -292,6 +293,7 @@ function clearGpsLocation() {
 }
 
 async function placeOrder() {
+  if (placingOrder.value) return;
   if (!customerName.value || !customerPhone.value) {
     alert('Please save your phone number before placing an order.');
     return;
@@ -310,20 +312,26 @@ async function placeOrder() {
     ? `GPS: ${deliveryLat.value.toFixed(5)}, ${deliveryLng.value.toFixed(5)}`
     : null;
 
-  const created = await addOrder({
-    items: cart.value,
-    total: cartTotal.value,
-    status: 'pending',
-    orderType: orderType.value,
-    customerName: customerName.value,
-    customerPhone: customerPhone.value,
-    deliveryAddress: gpsAddress,
-    deliveryLat: isDelivery ? deliveryLat.value : null,
-    deliveryLng: isDelivery ? deliveryLng.value : null,
-    notes: deliveryInstructions.value || undefined,
-    createdAt: new Date().toISOString(),
-    paymentMethod: 'digital',
-  });
+  placingOrder.value = true;
+  let created;
+  try {
+    created = await addOrder({
+      items: cart.value,
+      total: cartTotal.value,
+      status: 'pending',
+      orderType: orderType.value,
+      customerName: customerName.value,
+      customerPhone: customerPhone.value,
+      deliveryAddress: gpsAddress,
+      deliveryLat: isDelivery ? deliveryLat.value : null,
+      deliveryLng: isDelivery ? deliveryLng.value : null,
+      notes: deliveryInstructions.value || undefined,
+      createdAt: new Date().toISOString(),
+      paymentMethod: 'digital',
+    });
+  } finally {
+    placingOrder.value = false;
+  }
 
   if (!created) {
     alert('Could not place your order. Please try again.');
@@ -636,7 +644,15 @@ onUnmounted(() => {
           <div v-if="profileLoaded && !customerPhone" class="border rounded-lg p-3 space-y-2 bg-amber-50 border-amber-200">
             <label class="block text-sm font-medium">Add a phone number for delivery</label>
             <div class="flex gap-2">
-              <input v-model="phoneInput" class="flex-1 border rounded px-3 py-2" placeholder="Enter phone" />
+              <input
+                :value="phoneInput"
+                @input="phoneInput = $event.target.value.replace(/[^\d+]/g, '').slice(0, 16)"
+                type="tel"
+                inputmode="tel"
+                autocomplete="tel"
+                class="flex-1 border rounded px-3 py-2"
+                placeholder="Enter phone"
+              />
               <button
                 type="button"
                 class="px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
@@ -706,8 +722,12 @@ onUnmounted(() => {
             <span>Total</span>
             <span class="font-semibold">${{ cartTotal.toFixed(2) }}</span>
           </div>
-          <button class="w-full px-3 py-2 rounded bg-blue-600 text-white" @click="placeOrder">
-            {{ orderType === 'pickup' ? 'Place Pickup Order' : 'Place Delivery Order' }}
+          <button
+            class="w-full px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
+            :disabled="placingOrder"
+            @click="placeOrder"
+          >
+            {{ placingOrder ? 'Placing…' : (orderType === 'pickup' ? 'Place Pickup Order' : 'Place Delivery Order') }}
           </button>
         </div>
       </div>
@@ -726,7 +746,15 @@ onUnmounted(() => {
           </div>
           <div>
             <label class="block text-sm font-medium mb-1">Phone Number *</label>
-            <input v-model="trackPhone" class="w-full border rounded px-3 py-2" placeholder="Same phone used on order" />
+            <input
+              :value="trackPhone"
+              @input="trackPhone = $event.target.value.replace(/[^\d+]/g, '').slice(0, 16)"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel"
+              class="w-full border rounded px-3 py-2"
+              placeholder="Same phone used on order"
+            />
           </div>
         </div>
         <button class="px-4 py-2 rounded bg-blue-600 text-white" @click="findOrder">Track Order</button>

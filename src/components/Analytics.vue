@@ -27,7 +27,9 @@ const filteredOrders = computed(() => {
   if (timeRange.value === 'month') cutoff.setMonth(now.getMonth() - 1);
   if (timeRange.value === 'year') cutoff.setFullYear(now.getFullYear() - 1);
 
-  return state.orders.filter((order) => new Date(order.createdAt) >= cutoff);
+  return state.orders.filter(
+    (order) => order.status !== 'cancelled' && new Date(order.createdAt) >= cutoff
+  );
 });
 
 const stats = computed(() => {

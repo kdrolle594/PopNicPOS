@@ -13,6 +13,7 @@ const paymentMethod = ref('cash');
 const selectedCustomerId = ref('');
 const customerSearch = ref('');
 const customizationOpen = ref(false);
+const placingOrder = ref(false);
 const pendingMenuItem = ref(null);
 const pendingUsePoints = ref(false);
 const selectedPizzaSize = ref('medium');
@@ -318,6 +319,7 @@ function selectCustomer(customer) {
 }
 
 async function placeOrder() {
+  if (placingOrder.value) return;
   if (!currentOrder.value.length) {
     alert('Please add items to the order.');
     return;
@@ -335,19 +337,25 @@ async function placeOrder() {
     updateLoyaltyCustomer(updatedCustomer);
   }
 
-  const created = await addOrder({
-    items: currentOrder.value,
-    total: total.value,
-    status: 'pending',
-    tableNumber: Number(tableNumber.value),
-    customerName: customerName.value || selectedCustomer.value?.name,
-    customerId: selectedCustomerId.value || undefined,
-    paymentMethod: paymentMethod.value,
-    createdAt: new Date().toISOString(),
-    notes: notes.value || undefined,
-    pointsEarned: pointsToEarn.value,
-    pointsRedeemed: totalPointsToRedeem.value,
-  });
+  placingOrder.value = true;
+  let created;
+  try {
+    created = await addOrder({
+      items: currentOrder.value,
+      total: total.value,
+      status: 'pending',
+      tableNumber: Number(tableNumber.value),
+      customerName: customerName.value || selectedCustomer.value?.name,
+      customerId: selectedCustomerId.value || undefined,
+      paymentMethod: paymentMethod.value,
+      createdAt: new Date().toISOString(),
+      notes: notes.value || undefined,
+      pointsEarned: pointsToEarn.value,
+      pointsRedeemed: totalPointsToRedeem.value,
+    });
+  } finally {
+    placingOrder.value = false;
+  }
 
   if (!created) {
     alert('Failed to place order. Please try again.');
@@ -482,7 +490,11 @@ async function placeOrder() {
 
         <div class="flex gap-2">
           <button class="flex-1 px-3 py-2 rounded border" @click="currentOrder = []">Clear</button>
-          <button class="flex-1 px-3 py-2 rounded bg-blue-600 text-white" @click="placeOrder">Place Order</button>
+          <button
+            class="flex-1 px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
+            :disabled="placingOrder"
+            @click="placeOrder"
+          >{{ placingOrder ? 'Placing…' : 'Place Order' }}</button>
         </div>
       </div>
     </div>

@@ -188,23 +188,65 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/orders/:id/status — update order status
+// On transition to 'cancelled', restore the inventory that was deducted at order creation.
 router.put('/:id/status', async (req, res) => {
+  const conn = await pool.getConnection();
   try {
-    const { status } = req.body;
-    const completedAt = status === 'completed' ? new Date() : null;
+    await conn.beginTransaction();
 
-    await pool.query('UPDATE customer_order SET status = ?, completed_at = ? WHERE id = ?', [
-      status,
-      completedAt,
-      req.params.id,
-    ]);
+    const { status } = req.body;
+    const orderId = Number(req.params.id);
+
+    const [[current]] = await conn.query(
+      'SELECT status FROM customer_order WHERE id = ? FOR UPDATE',
+      [orderId]
+    );
+    if (!current) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const isCancelling = status === 'cancelled' && current.status !== 'cancelled';
+
+    if (isCancelling) {
+      const [items] = await conn.query(
+        'SELECT menu_item_id, quantity FROM order_item WHERE order_id = ?',
+        [orderId]
+      );
+      for (const item of items) {
+        if (!item.menu_item_id) continue;
+        const [recipeLinks] = await conn.query(
+          'SELECT inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id = ?',
+          [item.menu_item_id]
+        );
+        for (const link of recipeLinks) {
+          await conn.query(
+            `UPDATE inventory_item
+             SET quantity = quantity + ?, last_updated = NOW()
+             WHERE id = ?`,
+            [Number(link.quantity_used) * item.quantity, link.inventory_item_id]
+          );
+        }
+      }
+    }
+
+    const completedAt = status === 'completed' ? new Date() : null;
+    await conn.query(
+      'UPDATE customer_order SET status = ?, completed_at = ? WHERE id = ?',
+      [status, completedAt, orderId]
+    );
+
+    await conn.commit();
 
     const { emitOrderStatusUpdated } = await import('../socket.js');
-    emitOrderStatusUpdated(Number(req.params.id), status);
+    emitOrderStatusUpdated(orderId, status);
 
-    res.json({ id: Number(req.params.id), status, completedAt });
+    res.json({ id: orderId, status, completedAt });
   } catch (err) {
+    await conn.rollback();
     res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
   }
 });
 

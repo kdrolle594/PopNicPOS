@@ -9,8 +9,9 @@ const stats = computed(() => {
   const month = new Date().getMonth();
   const year = new Date().getFullYear();
 
-  const todayOrders = state.orders.filter((order) => new Date(order.createdAt).toDateString() === today);
-  const monthOrders = state.orders.filter((order) => {
+  const revenueOrders = state.orders.filter((order) => order.status !== 'cancelled');
+  const todayOrders = revenueOrders.filter((order) => new Date(order.createdAt).toDateString() === today);
+  const monthOrders = revenueOrders.filter((order) => {
     const date = new Date(order.createdAt);
     return date.getMonth() === month && date.getFullYear() === year;
   });
@@ -33,6 +34,7 @@ const categoryRevenue = computed(() => {
   const byCategory = new Map();
 
   state.orders.forEach((order) => {
+    if (order.status === 'cancelled') return;
     order.items.forEach((item) => {
       const menuItem = state.menuItems.find((m) => m.id === item.menuItemId);
       const category = menuItem?.category || 'Other';
