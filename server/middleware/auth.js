@@ -73,7 +73,9 @@ export async function loadUser(req, res, next) {
       }
     }
 
-    // 3. Completely new user — auto-create as customer
+    // 3. Completely new user — auto-create as customer.
+    // The app_user + customer_profile rows created here ARE the loyalty customer record;
+    // staff search via /api/customers will surface them. No separate "create loyalty customer" path needed.
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();

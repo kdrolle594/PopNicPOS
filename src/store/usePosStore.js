@@ -211,6 +211,24 @@ export function usePosStore() {
     }
   }
 
+  async function fetchMe() {
+    try {
+      return await api('/customers/me');
+    } catch (err) {
+      console.error('Failed to fetch own profile:', err);
+      return null;
+    }
+  }
+
+  async function updateMe(payload) {
+    try {
+      return await api('/customers/me', { method: 'PUT', body: payload });
+    } catch (err) {
+      console.error('Failed to update own profile:', err);
+      return null;
+    }
+  }
+
   storeInstance = {
     state,
     getTier,
@@ -227,6 +245,8 @@ export function usePosStore() {
     addLoyaltyCustomer,
     updateLoyaltyCustomer,
     deleteLoyaltyCustomer,
+    fetchMe,
+    updateMe,
   };
 
   return storeInstance;

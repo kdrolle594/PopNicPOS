@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onUnmounted, nextTick } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { usePosStore } from '../store/usePosStore';
 import { io } from 'socket.io-client';
 import 'leaflet/dist/leaflet.css';
@@ -12,7 +12,37 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
 
-const { state, addOrder } = usePosStore();
+const { state, addOrder, fetchMe, updateMe } = usePosStore();
+
+const profileLoaded = ref(false);
+const phoneInput = ref('');
+const savingPhone = ref(false);
+
+onMounted(async () => {
+  const me = await fetchMe();
+  profileLoaded.value = true;
+  if (me) {
+    customerName.value = me.name || '';
+    customerPhone.value = me.phone || '';
+  }
+});
+
+async function savePhone() {
+  if (!phoneInput.value.trim()) return;
+  savingPhone.value = true;
+  const updated = await updateMe({
+    name: customerName.value,
+    phone: phoneInput.value.trim(),
+    email: undefined,
+  });
+  savingPhone.value = false;
+  if (updated) {
+    customerPhone.value = updated.phone || phoneInput.value.trim();
+    phoneInput.value = '';
+  } else {
+    alert('Could not save your phone number. Please try again.');
+  }
+}
 
 // ── Order placement state (unchanged) ─────────────────────────────────────────
 
@@ -30,7 +60,6 @@ const selectedSodaFlavor = ref('coke cola');
 const customerName = ref('');
 const customerPhone = ref('');
 const orderType = ref('delivery'); // 'delivery' | 'pickup'
-const deliveryAddress = ref('');
 const deliveryInstructions = ref('');
 const deliveryLat = ref(null);
 const deliveryLng = ref(null);
@@ -264,11 +293,7 @@ function clearGpsLocation() {
 
 async function placeOrder() {
   if (!customerName.value || !customerPhone.value) {
-    alert('Name and phone are required.');
-    return;
-  }
-  if (orderType.value === 'delivery' && !deliveryAddress.value) {
-    alert('Delivery address is required.');
+    alert('Please save your phone number before placing an order.');
     return;
   }
   if (orderType.value === 'delivery' && (deliveryLat.value == null || deliveryLng.value == null)) {
@@ -281,6 +306,9 @@ async function placeOrder() {
   }
 
   const isDelivery = orderType.value === 'delivery';
+  const gpsAddress = isDelivery
+    ? `GPS: ${deliveryLat.value.toFixed(5)}, ${deliveryLng.value.toFixed(5)}`
+    : null;
 
   const created = await addOrder({
     items: cart.value,
@@ -289,7 +317,7 @@ async function placeOrder() {
     orderType: orderType.value,
     customerName: customerName.value,
     customerPhone: customerPhone.value,
-    deliveryAddress: isDelivery ? deliveryAddress.value : null,
+    deliveryAddress: gpsAddress,
     deliveryLat: isDelivery ? deliveryLat.value : null,
     deliveryLng: isDelivery ? deliveryLng.value : null,
     notes: deliveryInstructions.value || undefined,
@@ -600,23 +628,29 @@ onUnmounted(() => {
         </div>
 
         <div class="space-y-3">
-          <div>
-            <label class="block text-sm font-medium mb-1">Name *</label>
-            <input v-model="customerName" class="w-full border rounded px-3 py-2" placeholder="Enter full name" />
+          <div v-if="profileLoaded && customerName" class="rounded-lg bg-gray-50 border p-3 text-sm">
+            <p class="font-medium">{{ customerName }}</p>
+            <p v-if="customerPhone" class="text-gray-600">{{ customerPhone }}</p>
           </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Phone *</label>
-            <input v-model="customerPhone" class="w-full border rounded px-3 py-2" placeholder="Enter phone" />
+
+          <div v-if="profileLoaded && !customerPhone" class="border rounded-lg p-3 space-y-2 bg-amber-50 border-amber-200">
+            <label class="block text-sm font-medium">Add a phone number for delivery</label>
+            <div class="flex gap-2">
+              <input v-model="phoneInput" class="flex-1 border rounded px-3 py-2" placeholder="Enter phone" />
+              <button
+                type="button"
+                class="px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
+                :disabled="savingPhone || !phoneInput.trim()"
+                @click="savePhone"
+              >{{ savingPhone ? 'Saving…' : 'Save' }}</button>
+            </div>
+            <p class="text-xs text-gray-600">We'll only ask once.</p>
           </div>
 
           <template v-if="orderType === 'delivery'">
-            <div>
-              <label class="block text-sm font-medium mb-1">Delivery Address *</label>
-              <textarea v-model="deliveryAddress" rows="3" class="w-full border rounded px-3 py-2" placeholder="Street, apartment/unit, city, zip" />
-            </div>
             <div class="border rounded-lg p-3 space-y-2 bg-gray-50">
               <div class="flex items-center justify-between gap-2">
-                <p class="text-sm font-medium">GPS Location *</p>
+                <p class="text-sm font-medium">Delivery Location *</p>
                 <button
                   type="button"
                   class="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-60"
@@ -634,8 +668,8 @@ onUnmounted(() => {
               <p v-else class="text-xs text-gray-500">Share your location so the driver can find you precisely.</p>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">Delivery Instructions</label>
-              <textarea v-model="deliveryInstructions" rows="2" class="w-full border rounded px-3 py-2" placeholder="Gate code, apartment number, leave at door, etc." />
+              <label class="block text-sm font-medium mb-1">Apartment, unit, gate code, or other location details</label>
+              <textarea v-model="deliveryInstructions" rows="2" class="w-full border rounded px-3 py-2" placeholder="e.g. Apt 3B, gate code #1234, leave at door" />
             </div>
           </template>
 
@@ -816,9 +850,10 @@ onUnmounted(() => {
 
     <!-- ── Customization modal (unchanged) ── -->
     <div v-if="customizationOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl border w-full max-w-md p-4 space-y-4">
-        <h2 class="text-lg font-semibold">Customize {{ pendingMenuItem?.name }}</h2>
+      <div class="bg-white rounded-xl border w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden">
+        <h2 class="text-lg font-semibold p-4 border-b">Customize {{ pendingMenuItem?.name }}</h2>
 
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
         <div v-if="pendingMenuItem && isPizzaItem(pendingMenuItem)">
           <label class="block text-sm font-medium mb-2">Pizza Size</label>
           <div class="space-y-2">
@@ -872,7 +907,9 @@ onUnmounted(() => {
           </select>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
+        </div>
+
+        <div class="flex justify-end gap-2 p-4 border-t">
           <button class="px-3 py-2 border rounded" @click="customizationOpen = false">Cancel</button>
           <button class="px-3 py-2 bg-blue-600 text-white rounded" @click="confirmCustomization">Add to Cart</button>
         </div>
