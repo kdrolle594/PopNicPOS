@@ -315,13 +315,11 @@ function selectCustomer(customer) {
   customerSearch.value = '';
 }
 
-function placeOrder() {
+async function placeOrder() {
   if (!currentOrder.value.length) {
     alert('Please add items to the order.');
     return;
   }
-
-  const nextOrderNumber = state.orders.length ? Math.max(...state.orders.map((order) => order.orderNumber)) + 1 : 1;
 
   if (selectedCustomer.value && (pointsToEarn.value > 0 || totalPointsToRedeem.value > 0)) {
     const updatedCustomer = {
@@ -335,9 +333,7 @@ function placeOrder() {
     updateLoyaltyCustomer(updatedCustomer);
   }
 
-  addOrder({
-    id: Date.now().toString(),
-    orderNumber: nextOrderNumber,
+  const created = await addOrder({
     items: currentOrder.value,
     total: total.value,
     status: 'pending',
@@ -351,12 +347,17 @@ function placeOrder() {
     pointsRedeemed: totalPointsToRedeem.value,
   });
 
+  if (!created) {
+    alert('Failed to place order. Please try again.');
+    return;
+  }
+
   currentOrder.value = [];
   notes.value = '';
   customerName.value = '';
   selectedCustomerId.value = '';
 
-  alert(`Order #${nextOrderNumber} placed successfully.`);
+  alert(`Order #${created.orderNumber} placed successfully.`);
 }
 </script>
 

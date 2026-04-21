@@ -139,11 +139,14 @@ export function usePosStore() {
     try {
       const created = await api('/orders', { method: 'POST', body: order });
       state.orders = [...state.orders, created];
-      // Re-fetch inventory — the server deducted quantities in the same transaction
-      const freshInventory = await api('/inventory-items');
-      state.inventoryItems = freshInventory;
+      // Re-fetch inventory — tolerated failure (customer role is 403 here)
+      try {
+        state.inventoryItems = await api('/inventory-items');
+      } catch {}
+      return created;
     } catch (err) {
       console.error('Failed to place order:', err);
+      return null;
     }
   }
 

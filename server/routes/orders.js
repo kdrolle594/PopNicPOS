@@ -64,7 +64,6 @@ router.post('/', async (req, res) => {
     await conn.beginTransaction();
 
     const {
-      orderNumber,
       orderType,
       status,
       total,
@@ -80,6 +79,11 @@ router.post('/', async (req, res) => {
       pointsRedeemed,
       items,
     } = req.body;
+
+    // Server-authoritative order number — locks the gap to avoid racing the UNIQUE key
+    const [[{ orderNumber }]] = await conn.query(
+      'SELECT COALESCE(MAX(order_number), 0) + 1 AS orderNumber FROM customer_order FOR UPDATE'
+    );
 
     // Insert order header
     const [orderResult] = await conn.query(

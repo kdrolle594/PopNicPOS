@@ -280,12 +280,9 @@ async function placeOrder() {
     return;
   }
 
-  const nextOrderNumber = state.orders.length ? Math.max(...state.orders.map((order) => order.orderNumber)) + 1 : 1;
   const isDelivery = orderType.value === 'delivery';
 
-  await addOrder({
-    id: Date.now().toString(),
-    orderNumber: nextOrderNumber,
+  const created = await addOrder({
     items: cart.value,
     total: cartTotal.value,
     status: 'pending',
@@ -300,12 +297,17 @@ async function placeOrder() {
     paymentMethod: 'digital',
   });
 
+  if (!created) {
+    alert('Could not place your order. Please try again.');
+    return;
+  }
+
   cart.value = [];
   deliveryInstructions.value = '';
   clearGpsLocation();
 
   activeTab.value = 'track';
-  trackOrderNumber.value = String(nextOrderNumber);
+  trackOrderNumber.value = String(created.orderNumber);
   trackPhone.value = customerPhone.value;
   findOrder();
 }
