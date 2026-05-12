@@ -13,9 +13,7 @@
     "server": "node server/index.js",
     "start": "concurrently \"node server/index.js\" \"vite\"",
     "seed": "node server/seed.js",
-    "dev:all": "node server/seed.js & vite",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "dev:all": "node server/seed.js & vite"
   },
   "dependencies": {
     "@auth0/auth0-vue": "^2.5.0",
