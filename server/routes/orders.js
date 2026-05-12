@@ -175,7 +175,7 @@ router.post('/', async (req, res) => {
       items: items || [],
     };
 
-    const { emitNewOrder } = await import('../socket.js');
+    const { emitNewOrder } = await import('../realtime.js');
     emitNewOrder(responseOrder);
 
     res.status(201).json(responseOrder);
@@ -238,7 +238,7 @@ router.put('/:id/status', async (req, res) => {
 
     await conn.commit();
 
-    const { emitOrderStatusUpdated } = await import('../socket.js');
+    const { emitOrderStatusUpdated } = await import('../realtime.js');
     emitOrderStatusUpdated(orderId, status);
 
     res.json({ id: orderId, status, completedAt });
@@ -258,7 +258,7 @@ router.put('/:id/driver', async (req, res) => {
       'UPDATE customer_order SET driver_name = ?, driver_phone = ? WHERE id = ?',
       [driverName || null, driverPhone || null, req.params.id]
     );
-    const { emitOrderDriverAssigned } = await import('../socket.js');
+    const { emitOrderDriverAssigned } = await import('../realtime.js');
     emitOrderDriverAssigned(Number(req.params.id), { driverName, driverPhone });
     res.json({ id: Number(req.params.id), driverName, driverPhone });
   } catch (err) {

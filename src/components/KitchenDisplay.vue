@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive } from 'vue';
 import { usePosStore } from '../store/usePosStore';
-import { io } from 'socket.io-client';
+import { subscribeOrders } from '../lib/realtime.js';
 
 const { state, updateOrderStatus, updateOrderDriver } = usePosStore();
 
@@ -54,30 +54,27 @@ async function assignDriver(order) {
   s.open = false;
 }
 
-// ── Socket.IO ─────────────────────────────────────────────────────────────────
+// ── Realtime (Ably) ──────────────────────────────────────────────────────────
 
-let socket;
-onMounted(() => {
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  socket = io(apiUrl);
-
-  socket.on('newOrder', (order) => {
-    state.orders.push(order);
-  });
-
-  socket.on('orderStatusUpdated', ({ orderId, status }) => {
-    const o = state.orders.find((o) => o.id === orderId);
-    if (o) o.status = status;
-  });
-
-  socket.on('orderDriverAssigned', ({ orderId, driverName, driverPhone }) => {
-    const o = state.orders.find((o) => o.id === orderId);
-    if (o) { o.driverName = driverName; o.driverPhone = driverPhone; }
+let unsubscribe;
+onMounted(async () => {
+  unsubscribe = await subscribeOrders({
+    newOrder: (order) => {
+      state.orders.push(order);
+    },
+    orderStatusUpdated: ({ orderId, status }) => {
+      const o = state.orders.find((o) => o.id === orderId);
+      if (o) o.status = status;
+    },
+    orderDriverAssigned: ({ orderId, driverName, driverPhone }) => {
+      const o = state.orders.find((o) => o.id === orderId);
+      if (o) { o.driverName = driverName; o.driverPhone = driverPhone; }
+    },
   });
 });
 
 onUnmounted(() => {
-  if (socket) socket.disconnect();
+  if (unsubscribe) unsubscribe();
 });
 </script>
 

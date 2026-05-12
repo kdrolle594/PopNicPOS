@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { usePosStore } from '../store/usePosStore';
-import { io } from 'socket.io-client';
+import { subscribeOrders, subscribeDelivery } from '../lib/realtime.js';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -376,7 +376,8 @@ const customerLatLng = ref(null);
 let leafletMap = null;
 let driverMarker = null;
 let customerMarker = null;
-let trackerSocket = null;
+let unsubscribeDelivery = null;
+let unsubscribeOrders = null;
 
 const etaMap = computed(() => {
   if (trackedOrder.value?.orderType === 'pickup') {
@@ -499,27 +500,28 @@ function updateDriverMarker(lat, lng, driverName) {
   }
 }
 
-// ── Socket.IO tracker ─────────────────────────────────────────────────────────
+// ── Realtime tracker (Ably) ──────────────────────────────────────────────────
 
-function connectTrackerSocket(orderId) {
-  if (trackerSocket) { trackerSocket.disconnect(); trackerSocket = null; }
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  trackerSocket = io(apiUrl);
-  trackerSocket.emit('watchDelivery', { orderId });
+async function connectTracker(orderId) {
+  if (unsubscribeDelivery) { unsubscribeDelivery(); unsubscribeDelivery = null; }
+  if (unsubscribeOrders)   { unsubscribeOrders();   unsubscribeOrders = null; }
 
-  trackerSocket.on('driverLocation', ({ lat, lng, driverName }) => {
-    driverLocation.value = { lat, lng };
-    if (leafletMap) updateDriverMarker(lat, lng, driverName);
+  unsubscribeDelivery = await subscribeDelivery(orderId, {
+    driverLocation: ({ lat, lng, driverName }) => {
+      driverLocation.value = { lat, lng };
+      if (leafletMap) updateDriverMarker(lat, lng, driverName);
+    },
   });
 
-  trackerSocket.on('orderStatusUpdated', ({ orderId: updatedId, status }) => {
-    if (!trackedOrder.value || trackedOrder.value.id !== updatedId) return;
-    trackedOrder.value = { ...trackedOrder.value, status };
-  });
-
-  trackerSocket.on('orderDriverAssigned', ({ orderId: updatedId, driverName, driverPhone }) => {
-    if (!trackedOrder.value || trackedOrder.value.id !== updatedId) return;
-    trackedOrder.value = { ...trackedOrder.value, driverName, driverPhone };
+  unsubscribeOrders = await subscribeOrders({
+    orderStatusUpdated: ({ orderId: updatedId, status }) => {
+      if (!trackedOrder.value || trackedOrder.value.id !== updatedId) return;
+      trackedOrder.value = { ...trackedOrder.value, status };
+    },
+    orderDriverAssigned: ({ orderId: updatedId, driverName, driverPhone }) => {
+      if (!trackedOrder.value || trackedOrder.value.id !== updatedId) return;
+      trackedOrder.value = { ...trackedOrder.value, driverName, driverPhone };
+    },
   });
 }
 
@@ -530,7 +532,7 @@ watch(trackedOrder, (newOrder, oldOrder) => {
   if (!newOrder || newOrder.orderType !== 'delivery') return;
   const isNewOrder = !oldOrder || oldOrder.id !== newOrder.id;
   if (isNewOrder) {
-    connectTrackerSocket(newOrder.id);
+    connectTracker(newOrder.id);
     driverLocation.value = null;
     if (newOrder.deliveryLat != null && newOrder.deliveryLng != null) {
       customerLatLng.value = { lat: Number(newOrder.deliveryLat), lng: Number(newOrder.deliveryLng) };
@@ -560,7 +562,8 @@ watch(driverLocation, async (loc) => {
 });
 
 onUnmounted(() => {
-  if (trackerSocket) { trackerSocket.disconnect(); trackerSocket = null; }
+  if (unsubscribeDelivery) { unsubscribeDelivery(); unsubscribeDelivery = null; }
+  if (unsubscribeOrders)   { unsubscribeOrders();   unsubscribeOrders = null; }
   if (leafletMap) { leafletMap.remove(); leafletMap = null; }
 });
 </script>

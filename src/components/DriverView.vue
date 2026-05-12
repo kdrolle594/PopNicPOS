@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
-import { io } from 'socket.io-client';
+import { publishDriverLocation } from '../lib/realtime.js';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -24,7 +24,6 @@ const errorMsg       = ref('');
 const step           = ref('select'); // 'select' | 'tracking'
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-const socket = io(apiUrl);
 
 let watchId          = null;
 let locationInterval = null;
@@ -61,7 +60,6 @@ async function loadDeliveryOrders() {
 function startDelivery(order) {
   selectedOrder.value = order;
   step.value = 'tracking';
-  socket.emit('joinDeliveryRoom', { orderId: order.id });
 
   if ('geolocation' in navigator) {
     watchId = navigator.geolocation.watchPosition(
@@ -75,8 +73,7 @@ function startDelivery(order) {
 
   locationInterval = setInterval(() => {
     if (lastPosition.value && selectedOrder.value) {
-      socket.emit('driverLocation', {
-        orderId:    selectedOrder.value.id,
+      publishDriverLocation(selectedOrder.value.id, {
         lat:        lastPosition.value.lat,
         lng:        lastPosition.value.lng,
         driverName: driverName.value,
@@ -88,7 +85,6 @@ function startDelivery(order) {
 function endDelivery() {
   if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   clearInterval(locationInterval); locationInterval = null;
-  socket.emit('leaveDeliveryRoom', { orderId: selectedOrder.value?.id });
   destroyMap();
   selectedOrder.value = null;
   lastPosition.value  = null;

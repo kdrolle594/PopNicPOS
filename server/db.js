@@ -9,7 +9,7 @@ if (serviceUri) {
     uri: serviceUri,
     ssl: { rejectUnauthorized: false },
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 3,
     queueLimit: 0,
     dateStrings: false,
   };
@@ -22,7 +22,7 @@ if (serviceUri) {
     database: process.env.MYSQL_DATABASE || 'defaultdb',
     ssl: { rejectUnauthorized: false },
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 3,
     queueLimit: 0,
     dateStrings: false,
   };

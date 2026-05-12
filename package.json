@@ -17,17 +17,15 @@
   },
   "dependencies": {
     "@auth0/auth0-vue": "^2.5.0",
+    "ably": "^2.5.0",
     "chart.js": "^4.5.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-oauth2-jwt-bearer": "^1.8.0",
-    "gh-pages": "^6.3.0",
     "leaflet": "^1.9.4",
     "mcp-server-mysql": "^1.0.42",
     "mysql2": "^3.19.1",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
     "vue": "^3.5.13",
     "vue-chartjs": "^5.3.3"
   },
