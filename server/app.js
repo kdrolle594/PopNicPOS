@@ -35,9 +35,12 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/realtime', realtimeRoutes);
 
+const menuWriteAuth = [jwtCheck, loadUser, requireRole('manager', 'admin')];
 app.use('/api/menu-items', (req, res, next) => {
   if (req.method === 'GET') return next();
-  jwtCheck(req, res, () => loadUser(req, res, () => requireRole('manager', 'admin')(req, res, next)));
+  let i = 0;
+  const run = (err) => { if (err) return next(err); if (i < menuWriteAuth.length) menuWriteAuth[i++](req, res, run); else next(); };
+  run();
 });
 app.use('/api/menu-items', menuRoutes);
 
