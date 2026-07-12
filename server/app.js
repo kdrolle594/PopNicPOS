@@ -28,7 +28,8 @@ app.get('/api/health', async (_req, res) => {
     const [rows] = await pool.query('SELECT 1 AS ok');
     res.json({ status: 'ok', db: rows[0].ok === 1 });
   } catch (err) {
-    res.status(500).json({ status: 'error', message: err.message });
+    console.error(err);
+    res.status(500).json({ status: 'error', message: 'Health check failed' });
   }
 });
 
@@ -37,7 +38,7 @@ app.use('/api/realtime', realtimeRoutes);
 
 const menuWriteAuth = [jwtCheck, loadUser, requireRole('manager', 'admin')];
 app.use('/api/menu-items', (req, res, next) => {
-  if (req.method === 'GET') return next();
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
   let i = 0;
   const run = (err) => { if (err) return next(err); if (i < menuWriteAuth.length) menuWriteAuth[i++](req, res, run); else next(); };
   run();
@@ -58,7 +59,10 @@ app.use('/api/inventory-items', jwtCheck, loadUser, requireRole('manager', 'admi
 app.use('/api/customers', jwtCheck, loadUser);
 app.use('/api/customers', (req, res, next) => {
   if (req.path === '/me') return next();
-  return requireRole('manager', 'admin')(req, res, next);
+  // Cashiers need the loyalty customer list + point updates at the POS;
+  // destructive deletes stay manager+.
+  if (req.method === 'DELETE') return requireRole('manager', 'admin')(req, res, next);
+  return requireRole('cashier', 'manager', 'admin')(req, res, next);
 });
 app.use('/api/customers', customerRoutes);
 

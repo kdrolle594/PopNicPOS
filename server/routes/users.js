@@ -5,6 +5,7 @@ import { jwtCheck, loadUser, requireRole } from '../middleware/auth.js';
 const router = Router();
 
 const adminOnly = [jwtCheck, loadUser, requireRole('admin')];
+const VALID_ROLES = ['cashier', 'kitchen', 'driver', 'manager', 'admin'];
 
 // GET /api/users — list all employees and drivers
 router.get('/', ...adminOnly, async (_req, res) => {
@@ -19,7 +20,8 @@ router.get('/', ...adminOnly, async (_req, res) => {
     );
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -35,9 +37,8 @@ router.post('/', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'name, email, and role are required' });
     }
 
-    const validRoles = ['cashier', 'kitchen', 'driver', 'manager', 'admin'];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
     }
 
     const [userResult] = await conn.query(
@@ -60,7 +61,8 @@ router.post('/', ...adminOnly, async (req, res) => {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'An account with that email already exists' });
     }
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -72,6 +74,15 @@ router.put('/:id', ...adminOnly, async (req, res) => {
   try {
     await conn.beginTransaction();
     const { name, email, role } = req.body;
+
+    if (role && !VALID_ROLES.includes(role)) {
+      await conn.rollback();
+      return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
+    }
+    if (role && role !== 'admin' && Number(req.params.id) === req.user.id) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'You cannot demote your own admin account' });
+    }
 
     if (name || email) {
       await conn.query(
@@ -93,7 +104,8 @@ router.put('/:id', ...adminOnly, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -102,13 +114,17 @@ router.put('/:id', ...adminOnly, async (req, res) => {
 // DELETE /api/users/:id — remove employee (cascades to employee_profile)
 router.delete('/:id', ...adminOnly, async (req, res) => {
   try {
+    if (Number(req.params.id) === req.user.id) {
+      return res.status(400).json({ error: 'You cannot delete your own account' });
+    }
     await pool.query(
       `DELETE FROM app_user WHERE id = ? AND user_type = 'employee'`,
       [req.params.id]
     );
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

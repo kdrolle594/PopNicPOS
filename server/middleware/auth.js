@@ -16,11 +16,17 @@ export const jwtCheck = auth({
 //   sub not found + email matches a pre-registered employee → link auth_uid, continue
 //   sub not found + no email match → auto-create as customer
 export async function loadUser(req, res, next) {
-  const sub   = req.auth?.payload?.sub;
-  const email = req.auth?.payload?.[`${process.env.AUTH0_AUDIENCE}/email`]
-             || req.auth?.payload?.email
+  const payload = req.auth?.payload || {};
+  const sub   = payload.sub;
+  const email = payload[`${process.env.AUTH0_AUDIENCE}/email`]
+             || payload.email
              || null;
-  const name  = req.auth?.payload?.name || req.auth?.payload?.nickname || null;
+  // Only a verified email may be used to claim a pre-registered employee row —
+  // otherwise anyone who signs up with a staff member's address inherits their role.
+  const emailVerified = payload[`${process.env.AUTH0_AUDIENCE}/email_verified`]
+                     ?? payload.email_verified
+                     ?? false;
+  const name  = payload.name || payload.nickname || null;
 
   if (!sub) return res.status(401).json({ error: 'Missing sub claim' });
 
@@ -60,8 +66,20 @@ export async function loadUser(req, res, next) {
 
       if (preRows.length > 0) {
         const u = preRows[0];
-        // Link Auth0 sub to existing record
-        await pool.query('UPDATE app_user SET auth_uid = ? WHERE id = ?', [sub, u.id]);
+        if (emailVerified !== true) {
+          return res.status(403).json({
+            error: 'This email is registered to a staff account. Verify your email address, then sign in again.',
+          });
+        }
+        // Link Auth0 sub to existing record. Guard on auth_uid IS NULL so two
+        // concurrent logins can't both claim the row.
+        const [linkResult] = await pool.query(
+          'UPDATE app_user SET auth_uid = ? WHERE id = ? AND auth_uid IS NULL',
+          [sub, u.id]
+        );
+        if (linkResult.affectedRows === 0) {
+          return res.status(409).json({ error: 'Account link conflict — sign in again.' });
+        }
         req.user = {
           id:       u.id,
           userType: u.user_type,
@@ -104,6 +122,28 @@ export async function loadUser(req, res, next) {
       };
     } catch (err) {
       await conn.rollback();
+      // Two concurrent first requests can race the auto-create; the loser
+      // hits the UNIQUE(auth_uid) key — recover by reading the winner's row.
+      if (err.code === 'ER_DUP_ENTRY') {
+        const [retryRows] = await pool.query(
+          `SELECT u.id, u.user_type, u.display_name, u.email, ep.role
+           FROM app_user u
+           LEFT JOIN employee_profile ep ON ep.user_id = u.id
+           WHERE u.auth_uid = ?`,
+          [sub]
+        );
+        if (retryRows.length > 0) {
+          const u = retryRows[0];
+          req.user = {
+            id:       u.id,
+            userType: u.user_type,
+            name:     u.display_name,
+            email:    u.email,
+            role:     u.role || u.user_type,
+          };
+          return next();
+        }
+      }
       throw err;
     } finally {
       conn.release();
@@ -111,7 +151,8 @@ export async function loadUser(req, res, next) {
 
     return next();
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error('loadUser failed:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
 

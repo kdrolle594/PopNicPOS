@@ -3,6 +3,21 @@ import pool from '../db.js';
 
 const router = Router();
 
+function validateMenuPayload({ name, price, cost, inventoryItems }) {
+  if (!name || typeof name !== 'string' || !name.trim()) return 'name is required';
+  if (!isFinite(Number(price)) || Number(price) < 0) return 'price must be a non-negative number';
+  if (cost != null && (!isFinite(Number(cost)) || Number(cost) < 0)) return 'cost must be a non-negative number';
+  if (inventoryItems != null) {
+    if (!Array.isArray(inventoryItems)) return 'inventoryItems must be an array';
+    for (const inv of inventoryItems) {
+      if (!inv || !Number.isInteger(Number(inv.id)) || !isFinite(Number(inv.quantity)) || Number(inv.quantity) <= 0) {
+        return 'each inventory link needs an id and a positive quantity';
+      }
+    }
+  }
+  return null;
+}
+
 // GET /api/menu-items — list all with inventory recipe links
 router.get('/', async (_req, res) => {
   try {
@@ -25,7 +40,8 @@ router.get('/', async (_req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -35,6 +51,12 @@ router.post('/', async (req, res) => {
   try {
     await conn.beginTransaction();
     const { name, category, price, cost, available, isCombo, pointsValue, inventoryItems } = req.body;
+
+    const invalid = validateMenuPayload(req.body);
+    if (invalid) {
+      await conn.rollback();
+      return res.status(400).json({ error: invalid });
+    }
 
     const [result] = await conn.query(
       `INSERT INTO menu_item (name, category, price, cost, available, is_combo, points_value)
@@ -66,7 +88,8 @@ router.post('/', async (req, res) => {
     });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -78,6 +101,12 @@ router.put('/:id', async (req, res) => {
   try {
     await conn.beginTransaction();
     const { name, category, price, cost, available, isCombo, pointsValue, inventoryItems } = req.body;
+
+    const invalid = validateMenuPayload(req.body);
+    if (invalid) {
+      await conn.rollback();
+      return res.status(400).json({ error: invalid });
+    }
 
     await conn.query(
       `UPDATE menu_item SET name=?, category=?, price=?, cost=?, available=?, is_combo=?, points_value=?
@@ -110,7 +139,8 @@ router.put('/:id', async (req, res) => {
     });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -122,7 +152,8 @@ router.delete('/:id', async (req, res) => {
     await pool.query('DELETE FROM menu_item WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -39,17 +39,31 @@ router.get('/me', async (req, res) => {
       lastVisit: r.last_visit,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// PUT /api/customers/me — update self-editable fields only
+// PUT /api/customers/me — update self-editable fields only (partial update;
+// omitted fields are left unchanged). Customer accounts only — staff rows
+// must not be editable through this endpoint.
 router.put('/me', async (req, res) => {
   try {
     const { name, phone, email } = req.body;
+    if (name != null && (typeof name !== 'string' || !name.trim() || name.length > 100)) {
+      return res.status(400).json({ error: 'Invalid name' });
+    }
+    if ((phone != null && (typeof phone !== 'string' || phone.length > 30)) ||
+        (email != null && (typeof email !== 'string' || email.length > 255))) {
+      return res.status(400).json({ error: 'Invalid phone or email' });
+    }
     await pool.query(
-      `UPDATE app_user SET display_name = ?, phone = ?, email = ? WHERE id = ?`,
-      [name, phone || null, email || null, req.user.id]
+      `UPDATE app_user
+       SET display_name = COALESCE(?, display_name),
+           phone = COALESCE(?, phone),
+           email = COALESCE(?, email)
+       WHERE id = ? AND user_type = 'customer'`,
+      [name || null, phone || null, email || null, req.user.id]
     );
     const [rows] = await pool.query(
       `SELECT u.id, u.display_name, u.phone, u.email,
@@ -77,7 +91,8 @@ router.put('/me', async (req, res) => {
       lastVisit: r.last_visit,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -109,7 +124,8 @@ router.get('/', async (_req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -119,6 +135,14 @@ router.post('/', async (req, res) => {
   try {
     await conn.beginTransaction();
     const { name, phone, email, points, totalSpent, ordersCount, joinedDate } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if ([points, totalSpent, ordersCount].some((v) => v != null && (!isFinite(Number(v)) || Number(v) < 0))) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'points, totalSpent, and ordersCount must be non-negative numbers' });
+    }
     const tier = getTier(points || 0);
     const joinedAt = joinedDate ? new Date(joinedDate) : new Date();
 
@@ -153,7 +177,8 @@ router.post('/', async (req, res) => {
     });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -165,6 +190,14 @@ router.put('/:id', async (req, res) => {
   try {
     await conn.beginTransaction();
     const { name, phone, email, points, totalSpent, ordersCount, lastVisit } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if ([points, totalSpent, ordersCount].some((v) => v != null && (!isFinite(Number(v)) || Number(v) < 0))) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'points, totalSpent, and ordersCount must be non-negative numbers' });
+    }
     const tier = getTier(points || 0);
 
     await conn.query('UPDATE app_user SET display_name=?, phone=?, email=? WHERE id=?', [
@@ -196,7 +229,8 @@ router.put('/:id', async (req, res) => {
     });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -208,7 +242,8 @@ router.delete('/:id', async (req, res) => {
     await pool.query('DELETE FROM app_user WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

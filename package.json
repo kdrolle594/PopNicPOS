@@ -24,8 +24,8 @@
     "express": "^5.2.1",
     "express-oauth2-jwt-bearer": "^1.8.0",
     "leaflet": "^1.9.4",
-    "mcp-server-mysql": "^1.0.42",
     "mysql2": "^3.19.1",
+    "vercel": "^55.0.0",
     "vue": "^3.5.13",
     "vue-chartjs": "^5.3.3"
   },
@@ -36,11 +36,11 @@
     "shadcn": "^4.1.1",
     "tailwindcss": "4.1.12",
     "tw-animate-css": "1.3.8",
-    "vite": "6.3.5"
+    "vite": "^6.4.3"
   },
   "pnpm": {
     "overrides": {
-      "vite": "6.3.5"
+      "vite": "^6.4.3"
     }
   }
 }

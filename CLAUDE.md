@@ -32,10 +32,11 @@ npm run deploy
 
 ## Architecture
 
-**Split deployment**: frontend (GitHub Pages) + backend (Railway).
+**Split deployment**: frontend (GitHub Pages) + backend (Vercel serverless functions).
 
 - Frontend: Vue 3 + Vite + Tailwind CSS — `src/`
-- Backend: Express 5 + Socket.io + MySQL2 — `server/`
+- Backend: Express 5 + MySQL2 — `server/` (Vercel entry point re-exports the app from `api/index.js`; `vercel.json` rewrites all paths to it)
+- Realtime: Ably (server publishes via `server/realtime.js`; browser clients get scoped tokens from `GET /api/realtime/token`)
 - Database: Aiven-hosted MySQL (connection via `MYSQL_URI`)
 - Auth: Auth0 (SPA SDK on the frontend, JWT validation on the backend)
 
@@ -58,22 +59,23 @@ Key views and their roles:
 
 ### Backend
 
-`server/index.js` initializes Express, verifies MySQL connection (but continues on failure), registers route modules, and sets up Socket.io via `server/socket.js`. A health check is exposed at `GET /api/health`.
+`server/app.js` builds the Express app (CORS, routes, auth policy); `server/index.js` is the local dev entry that verifies the MySQL connection (but continues on failure) and listens on `PORT`; `api/index.js` exports the same app for Vercel. A health check is exposed at `GET /api/health`.
 
-Routes: `/api/auth`, `/api/menu-items`, `/api/inventory-items`, `/api/orders`, `/api/customers`, `/api/users`.
+Routes: `/api/auth`, `/api/realtime`, `/api/menu-items`, `/api/inventory-items`, `/api/orders`, `/api/customers`, `/api/users`.
 
 **Auth middleware** (`server/middleware/auth.js`) exposes three pieces:
 - `jwtCheck` — `express-oauth2-jwt-bearer` verifying the Auth0 JWT (audience `AUTH0_AUDIENCE`, issuer `https://AUTH0_DOMAIN/`).
-- `loadUser` — after JWT verify, resolves `req.user` from the DB. Matches first by `auth_uid` = Auth0 `sub`; falls back to email match against pre-registered employees (and links `auth_uid`); otherwise auto-creates an `app_user` + `customer_profile` row as a customer. Email is read from either the namespaced claim (`${AUTH0_AUDIENCE}/email`) or the standard `email` claim.
+- `loadUser` — after JWT verify, resolves `req.user` from the DB. Matches first by `auth_uid` = Auth0 `sub`; falls back to email match against pre-registered employees (links `auth_uid`, but only when the token's `email_verified` claim is true — unverified matches get a 403); otherwise auto-creates an `app_user` + `customer_profile` row as a customer. Email/email_verified are read from either the namespaced claims (`${AUTH0_AUDIENCE}/email`, `${AUTH0_AUDIENCE}/email_verified`) or the standard claims.
 - `requireRole(...roles)` — 403 if `req.user.role` is not in the allowed list.
 
-Route-level auth policy is set in `server/index.js` — e.g. `GET /api/menu-items` is public, mutations require manager+; `/api/orders` POST allows customers, other verbs allow all operational roles; `/api/inventory-items` and `/api/customers` require manager+.
+Route-level auth policy is set in `server/app.js` — e.g. `GET /api/menu-items` is public, mutations require manager+; `/api/orders` POST allows customers, other verbs allow all operational roles; `/api/inventory-items` requires manager+; `/api/customers` allows cashier+ (POS loyalty flow) except DELETE which is manager+, with `/me` open to any authenticated user.
 
-`server/routes/orders.js` is the most complex route — order creation uses a MySQL transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links.
+`server/routes/orders.js` is the most complex route — order creation uses a MySQL transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links. Totals are computed server-side from DB prices; `paidWithPoints`, custom line items, and the `pointsEarned`/`pointsRedeemed` fields are staff-only (forced to 0/rejected for customers).
 
-`server/socket.js` manages real-time events:
-- Kitchen/customer/driver receive order updates via `emitNewOrder`, `emitOrderStatusUpdated`, `emitOrderDriverAssigned`
-- Drivers join a `delivery-{orderId}` room and broadcast GPS coordinates; customers watch the same room
+Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib/realtime.js`):
+- Order events publish to the Ably `orders` channel: `newOrder`, `orderStatusUpdated`, `orderDriverAssigned`
+- Drivers publish GPS to `delivery:{orderId}` channels; customers subscribe to the same channel
+- `GET /api/realtime/token` issues Ably token requests — drivers get publish rights on `delivery:*`, everyone else is subscribe-only
 
 ### Data model note
 
@@ -84,7 +86,9 @@ Route-level auth policy is set in `server/index.js` — e.g. `GET /api/menu-item
 | Variable | Used by | Purpose |
 |---|---|---|
 | `MYSQL_URI` | server | Aiven MySQL connection string |
-| `PORT` | server | HTTP port (default 3000) |
+| `MYSQL_CA` | server | Aiven CA cert (PEM or base64 PEM). Without it, MySQL TLS verification is disabled (warning is logged) |
+| `ABLY_API_KEY` | server | Ably realtime publishing + token issuing (realtime is silently disabled without it) |
+| `PORT` | server | HTTP port (default 3000, local dev only) |
 | `FRONTEND_URL` | server | CORS allowlist in production |
 | `AUTH0_DOMAIN` | server | Auth0 tenant domain (issuer) |
 | `AUTH0_AUDIENCE` | server | Auth0 API identifier for JWT audience check |

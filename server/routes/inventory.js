@@ -18,14 +18,25 @@ router.get('/', async (_req, res) => {
     }));
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+function validateInventoryPayload({ name, quantity, reorderLevel, costPerUnit }) {
+  if (!name || typeof name !== 'string' || !name.trim()) return 'name is required';
+  for (const [label, v] of [['quantity', quantity], ['reorderLevel', reorderLevel], ['costPerUnit', costPerUnit]]) {
+    if (v != null && (!isFinite(Number(v)) || Number(v) < 0)) return `${label} must be a non-negative number`;
+  }
+  return null;
+}
 
 // POST /api/inventory-items — create new inventory item
 router.post('/', async (req, res) => {
   try {
     const { name, quantity, unit, reorderLevel, costPerUnit } = req.body;
+    const invalid = validateInventoryPayload(req.body);
+    if (invalid) return res.status(400).json({ error: invalid });
     const [result] = await pool.query(
       `INSERT INTO inventory_item (name, quantity, unit, reorder_level, cost_per_unit)
        VALUES (?, ?, ?, ?, ?)`,
@@ -41,7 +52,8 @@ router.post('/', async (req, res) => {
       lastUpdated: new Date().toISOString(),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -49,6 +61,8 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { name, quantity, unit, reorderLevel, costPerUnit } = req.body;
+    const invalid = validateInventoryPayload(req.body);
+    if (invalid) return res.status(400).json({ error: invalid });
     await pool.query(
       `UPDATE inventory_item
        SET name=?, quantity=?, unit=?, reorder_level=?, cost_per_unit=?, last_updated=NOW()
@@ -65,7 +79,8 @@ router.put('/:id', async (req, res) => {
       lastUpdated: new Date().toISOString(),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -75,7 +90,8 @@ router.delete('/:id', async (req, res) => {
     await pool.query('DELETE FROM inventory_item WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

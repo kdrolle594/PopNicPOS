@@ -7,6 +7,18 @@ const router = Router();
 const STAFF_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin', 'driver']);
 const DRIVER_ASSIGN_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin']);
 const VALID_STATUSES = new Set(['pending', 'preparing', 'ready', 'completed', 'cancelled']);
+const VALID_ORDER_TYPES = new Set(['dine_in', 'pickup', 'delivery']);
+const MAX_ITEM_QUANTITY = 100;
+
+function parseCustomizations(raw) {
+  if (raw == null) return {};
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
 // Must stay in sync with POSTerminal.vue pizzaSizeOptions priceDelta values
 const PIZZA_SIZE_DELTAS = { 'personal pan': -2, medium: 0, large: 3 };
 
@@ -56,16 +68,14 @@ router.get('/', async (req, res) => {
           price: Number(i.unit_price),
           paidWithPoints: Boolean(i.paid_with_points),
           notes: i.notes,
-          options:
-            typeof i.customizations === 'string'
-              ? JSON.parse(i.customizations)
-              : i.customizations || {},
+          options: parseCustomizations(i.customizations),
         })),
     }));
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -95,6 +105,45 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'items must be a non-empty array' });
     }
 
+    if (orderType != null && !VALID_ORDER_TYPES.has(orderType)) {
+      await conn.rollback();
+      return res.status(400).json({ error: `orderType must be one of: ${[...VALID_ORDER_TYPES].join(', ')}` });
+    }
+
+    const lat = deliveryLat != null ? Number(deliveryLat) : null;
+    const lng = deliveryLng != null ? Number(deliveryLng) : null;
+    if ((lat != null && (!isFinite(lat) || Math.abs(lat) > 90)) ||
+        (lng != null && (!isFinite(lng) || Math.abs(lng) > 180))) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'Invalid delivery coordinates' });
+    }
+
+    const isStaff = STAFF_ROLES.has(req.user?.role);
+
+    // Normalize and validate every line item before touching the DB.
+    for (const item of items) {
+      item.quantity = Number(item.quantity ?? 1);
+      if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_ITEM_QUANTITY) {
+        await conn.rollback();
+        return res.status(400).json({ error: `Item quantity must be an integer between 1 and ${MAX_ITEM_QUANTITY}` });
+      }
+      if (typeof item.name !== 'string' || !item.name.trim()) {
+        await conn.rollback();
+        return res.status(400).json({ error: 'Each item requires a name' });
+      }
+      // Point-paid lines skip the cash total; only trusted staff (POS terminal)
+      // may mark them — a customer could otherwise order everything for free.
+      if (item.paidWithPoints && !isStaff) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'Point redemption requires a staff role' });
+      }
+    }
+
+    // Loyalty point fields are bookkeeping set by the POS terminal; never
+    // accept them from customer-placed orders.
+    const safePointsEarned   = isStaff ? Math.max(0, Number(pointsEarned)   || 0) : 0;
+    const safePointsRedeemed = isStaff ? Math.max(0, Number(pointsRedeemed) || 0) : 0;
+
     // Compute server-authoritative total from DB prices
     const menuItemIds = [...new Set(items.filter((i) => i.menuItemId).map((i) => i.menuItemId))];
     let dbPriceMap = {};
@@ -103,7 +152,6 @@ router.post('/', async (req, res) => {
       dbPriceMap = Object.fromEntries(menuRows.map((r) => [r.id, Number(r.price)]));
     }
 
-    const isStaff = STAFF_ROLES.has(req.user?.role);
     let serverTotal = 0;
     for (const item of items) {
       if (item.paidWithPoints) continue;
@@ -114,7 +162,7 @@ router.post('/', async (req, res) => {
         }
         let price = dbPriceMap[item.menuItemId];
         if (item.options?.pizzaSize) price += PIZZA_SIZE_DELTAS[item.options.pizzaSize] ?? 0;
-        serverTotal += price * (item.quantity || 1);
+        serverTotal += price * item.quantity;
       } else {
         if (!isStaff) {
           await conn.rollback();
@@ -125,7 +173,7 @@ router.post('/', async (req, res) => {
           await conn.rollback();
           return res.status(400).json({ error: 'Invalid price on custom line item' });
         }
-        serverTotal += customPrice * (item.quantity || 1);
+        serverTotal += customPrice * item.quantity;
       }
     }
     serverTotal = Math.round(serverTotal * 100) / 100;
@@ -152,12 +200,12 @@ router.post('/', async (req, res) => {
             customerPhone || null,
             tableNumber || null,
             deliveryAddress || null,
-            deliveryLat != null ? Number(deliveryLat) : null,
-            deliveryLng != null ? Number(deliveryLng) : null,
+            lat,
+            lng,
             notes || null,
             paymentMethod || null,
-            pointsEarned || 0,
-            pointsRedeemed || 0,
+            safePointsEarned,
+            safePointsRedeemed,
           ]
         );
         orderNumber = next;
@@ -226,12 +274,12 @@ router.post('/', async (req, res) => {
       customerPhone: customerPhone || null,
       tableNumber: tableNumber || null,
       deliveryAddress: deliveryAddress || null,
-      deliveryLat: deliveryLat != null ? Number(deliveryLat) : null,
-      deliveryLng: deliveryLng != null ? Number(deliveryLng) : null,
+      deliveryLat: lat,
+      deliveryLng: lng,
       notes: notes || null,
       paymentMethod: paymentMethod || null,
-      pointsEarned: pointsEarned || 0,
-      pointsRedeemed: pointsRedeemed || 0,
+      pointsEarned: safePointsEarned,
+      pointsRedeemed: safePointsRedeemed,
       createdAt: new Date().toISOString(),
       completedAt: null,
       items: items || [],
@@ -241,7 +289,8 @@ router.post('/', async (req, res) => {
     res.status(201).json(responseOrder);
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -280,6 +329,13 @@ router.put('/:id/status', async (req, res) => {
         await conn.rollback();
         return res.status(403).json({ error: 'Customers can only cancel orders' });
       }
+    }
+
+    // Cancelling restocks inventory; reactivating would not re-deduct it,
+    // so a cancelled order is terminal.
+    if (current.status === 'cancelled' && status !== 'cancelled') {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Cancelled orders cannot be reactivated' });
     }
 
     const isCancelling = status === 'cancelled' && current.status !== 'cancelled';
@@ -322,7 +378,8 @@ router.put('/:id/status', async (req, res) => {
     res.json({ id: orderId, status, completedAt: completedAt ?? null });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     conn.release();
   }
@@ -335,6 +392,11 @@ router.put('/:id/driver', async (req, res) => {
   }
   try {
     const { driverName, driverPhone } = req.body;
+    if ((driverName != null && typeof driverName !== 'string') ||
+        (driverPhone != null && typeof driverPhone !== 'string') ||
+        (driverName || '').length > 100 || (driverPhone || '').length > 30) {
+      return res.status(400).json({ error: 'Invalid driver name or phone' });
+    }
     await pool.query(
       'UPDATE customer_order SET driver_name = ?, driver_phone = ? WHERE id = ?',
       [driverName || null, driverPhone || null, req.params.id]
@@ -342,7 +404,8 @@ router.put('/:id/driver', async (req, res) => {
     emitOrderDriverAssigned(Number(req.params.id), { driverName, driverPhone });
     res.json({ id: Number(req.params.id), driverName, driverPhone });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

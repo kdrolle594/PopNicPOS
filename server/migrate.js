@@ -84,6 +84,24 @@ async function run() {
       console.log('✔  customer_order.delivery_lng already exists — skipping');
     }
 
+    // 4. app_user.auth_uid must be nullable — employee pre-registration
+    // (POST /api/users) inserts NULL and first-login linking matches on
+    // auth_uid IS NULL. The original schema declared it NOT NULL.
+    const [uidCols] = await conn.query(`
+      SELECT IS_NULLABLE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME   = 'app_user'
+        AND COLUMN_NAME  = 'auth_uid'
+    `);
+    if (uidCols.length === 0) {
+      console.warn('app_user.auth_uid column not found — skipping nullable migration');
+    } else if (uidCols[0].IS_NULLABLE === 'YES') {
+      console.log('✔  app_user.auth_uid already nullable — skipping');
+    } else {
+      await conn.query(`ALTER TABLE app_user MODIFY COLUMN auth_uid VARCHAR(255) NULL`);
+      console.log('✔  Made app_user.auth_uid nullable (employee pre-registration)');
+    }
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);
