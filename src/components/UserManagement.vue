@@ -9,9 +9,9 @@ const loading = ref(false);
 const error = ref('');
 const success = ref('');
 
-const form = ref({ name: '', email: '', role: 'cashier' });
+const form = ref({ name: '', email: '', phone: '', role: 'cashier' });
 const editingId = ref(null);
-const editForm = ref({ name: '', email: '', role: '' });
+const editForm = ref({ name: '', email: '', phone: '', role: '' });
 
 const ROLES = ['cashier', 'kitchen', 'driver', 'manager', 'admin'];
 
@@ -60,7 +60,7 @@ async function createUser() {
   try {
     const user = await apiFetch('/api/users', { method: 'POST', body: form.value });
     users.value.push(user);
-    form.value = { name: '', email: '', role: 'cashier' };
+    form.value = { name: '', email: '', phone: '', role: 'cashier' };
     success.value = `Account created. Ask ${user.name} to sign up at the app using ${user.email}.`;
   } catch (err) {
     error.value = err.message;
@@ -69,7 +69,7 @@ async function createUser() {
 
 function startEdit(user) {
   editingId.value = user.id;
-  editForm.value = { name: user.name, email: user.email, role: user.role };
+  editForm.value = { name: user.name, email: user.email, phone: user.phone || '', role: user.role };
 }
 
 async function saveEdit(id) {
@@ -114,7 +114,7 @@ onMounted(loadUsers);
     <!-- Create form -->
     <div class="bg-white rounded-xl border p-5 space-y-4">
       <h2 class="font-semibold text-gray-800">Add New Account</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">Full Name</label>
           <input
@@ -130,6 +130,17 @@ onMounted(loadUsers);
             type="email"
             class="w-full border rounded-lg px-3 py-2 text-sm"
             placeholder="jane@example.com"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">
+            Phone <span class="text-gray-400 font-normal">(drivers)</span>
+          </label>
+          <input
+            v-model="form.phone"
+            type="tel"
+            class="w-full border rounded-lg px-3 py-2 text-sm"
+            placeholder="555-0142"
           />
         </div>
         <div>
@@ -156,6 +167,7 @@ onMounted(loadUsers);
           <tr>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Name</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Email</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Role</th>
             <th class="px-4 py-3"></th>
           </tr>
@@ -170,6 +182,9 @@ onMounted(loadUsers);
                 <input v-model="editForm.email" class="border rounded px-2 py-1 w-full text-sm" />
               </td>
               <td class="px-4 py-2">
+                <input v-model="editForm.phone" type="tel" class="border rounded px-2 py-1 w-full text-sm" placeholder="555-0142" />
+              </td>
+              <td class="px-4 py-2">
                 <select v-model="editForm.role" class="border rounded px-2 py-1 text-sm">
                   <option v-for="r in ROLES" :key="r" :value="r">{{ ROLE_LABELS[r] }}</option>
                 </select>
@@ -182,6 +197,10 @@ onMounted(loadUsers);
             <template v-else>
               <td class="px-4 py-3 font-medium text-gray-800">{{ user.name }}</td>
               <td class="px-4 py-3 text-gray-600">{{ user.email }}</td>
+              <td class="px-4 py-3 text-gray-600">
+                <span v-if="user.phone">{{ user.phone }}</span>
+                <span v-else class="text-gray-300">—</span>
+              </td>
               <td class="px-4 py-3">
                 <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                   {{ ROLE_LABELS[user.role] || user.role }}

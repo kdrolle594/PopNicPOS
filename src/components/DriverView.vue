@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { useAuth0 } from '@auth0/auth0-vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useAuthStore } from '../store/useAuthStore.js';
 import { publishDriverLocation } from '../lib/realtime.js';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -11,22 +11,39 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
 
-const { user: auth0User } = useAuth0();
+const auth = useAuthStore();
 
-// Driver name comes from the authenticated user — no fake login step
-const driverName = ref(auth0User.value?.name || auth0User.value?.email || 'Driver');
+// Driver name comes from the backend-resolved app user — the same value the
+// server stamps onto the order when this driver claims it.
+const driverName = computed(
+  () => auth.state.appUser?.name || auth.state.appUser?.email || 'Driver'
+);
 
 const deliveryOrders = ref([]);
 const loadingOrders  = ref(false);
 const selectedOrder  = ref(null);
 const lastPosition   = ref(null);
 const errorMsg       = ref('');
+const claiming       = ref(false);
 const step           = ref('select'); // 'select' | 'tracking'
-
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 let watchId          = null;
 let locationInterval = null;
+
+async function api(path, options = {}) {
+  const base = import.meta.env.VITE_API_URL || '';
+  const token = await auth.getToken();
+  const res = await fetch(`${base}/api${path}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
 
 // ── Map state ─────────────────────────────────────────────────────────────────
 
@@ -39,17 +56,14 @@ async function loadDeliveryOrders() {
   loadingOrders.value = true;
   errorMsg.value = '';
   try {
-    const base = import.meta.env.VITE_API_URL || '';
-    // Token is attached by usePosStore's api() helper, but here we use fetch directly
-    // Import auth store for the token
-    const { useAuthStore } = await import('../store/useAuthStore.js');
-    const auth = useAuthStore();
-    const token = await auth.getToken();
-    const res = await fetch(`${base}/api/orders`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const all = await res.json();
-    deliveryOrders.value = all.filter((o) => o.orderType === 'delivery' && o.status === 'ready');
+    const all = await api('/orders');
+    // Hide deliveries another driver has already claimed.
+    deliveryOrders.value = all.filter(
+      (o) =>
+        o.orderType === 'delivery' &&
+        o.status === 'ready' &&
+        (!o.driverName || o.driverName === driverName.value)
+    );
   } catch {
     errorMsg.value = 'Failed to load orders.';
   } finally {
@@ -57,7 +71,24 @@ async function loadDeliveryOrders() {
   }
 }
 
-function startDelivery(order) {
+async function startDelivery(order) {
+  errorMsg.value = '';
+  claiming.value = true;
+
+  // Claim the order server-side first. This stamps driver_name/driver_phone onto
+  // the order and publishes orderDriverAssigned, which is what surfaces the
+  // driver's contact details in the customer's tracking panel and the kitchen.
+  try {
+    const claimed = await api(`/orders/${order.id}/driver`, { method: 'PUT' });
+    order = { ...order, driverName: claimed.driverName, driverPhone: claimed.driverPhone };
+  } catch (err) {
+    errorMsg.value = err.message || 'Could not claim this order.';
+    claiming.value = false;
+    loadDeliveryOrders();
+    return;
+  }
+  claiming.value = false;
+
   selectedOrder.value = order;
   step.value = 'tracking';
 
@@ -185,7 +216,6 @@ onUnmounted(() => {
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   clearInterval(locationInterval);
   destroyMap();
-  socket.disconnect();
 });
 </script>
 
@@ -221,10 +251,11 @@ onUnmounted(() => {
               GPS pin provided
             </p>
             <button
-              class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-medium"
+              class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
+              :disabled="claiming"
               @click="startDelivery(order)"
             >
-              Start Delivery
+              {{ claiming ? 'Claiming…' : 'Start Delivery' }}
             </button>
           </div>
         </div>

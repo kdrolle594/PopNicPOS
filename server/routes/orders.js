@@ -385,24 +385,61 @@ router.put('/:id/status', async (req, res) => {
   }
 });
 
-// PUT /api/orders/:id/driver — assign driver to a delivery order
+// PUT /api/orders/:id/driver — assign driver to a delivery order.
+// Staff may assign anyone; a driver may only claim an order for themselves, so
+// their name/phone are taken from their own account rather than the request body.
 router.put('/:id/driver', async (req, res) => {
-  if (!DRIVER_ASSIGN_ROLES.has(req.user?.role)) {
-    return res.status(403).json({ error: 'Driver assignment requires cashier, kitchen, manager, or admin role' });
+  const role = req.user?.role;
+  const isSelfAssigningDriver = role === 'driver';
+  if (!isSelfAssigningDriver && !DRIVER_ASSIGN_ROLES.has(role)) {
+    return res.status(403).json({ error: 'Driver assignment requires driver, cashier, kitchen, manager, or admin role' });
   }
+
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId) || orderId < 1) {
+    return res.status(400).json({ error: 'Invalid order id' });
+  }
+
   try {
-    const { driverName, driverPhone } = req.body;
-    if ((driverName != null && typeof driverName !== 'string') ||
-        (driverPhone != null && typeof driverPhone !== 'string') ||
-        (driverName || '').length > 100 || (driverPhone || '').length > 30) {
-      return res.status(400).json({ error: 'Invalid driver name or phone' });
+    let driverName, driverPhone;
+
+    if (isSelfAssigningDriver) {
+      driverName  = req.user.name || null;
+      driverPhone = req.user.phone || null;
+      if (!driverName) {
+        return res.status(400).json({ error: 'Your account has no name set — ask an admin to update your profile.' });
+      }
+      // A driver may claim an unassigned order, or re-confirm one already theirs,
+      // but must not steal a delivery another driver is already running.
+      const [[current]] = await pool.query(
+        'SELECT driver_name FROM customer_order WHERE id = ?',
+        [orderId]
+      );
+      if (!current) return res.status(404).json({ error: 'Order not found' });
+      if (current.driver_name && current.driver_name !== driverName) {
+        return res.status(409).json({ error: 'This order is already assigned to another driver' });
+      }
+    } else {
+      ({ driverName, driverPhone } = req.body);
+      if ((driverName != null && typeof driverName !== 'string') ||
+          (driverPhone != null && typeof driverPhone !== 'string') ||
+          (driverName || '').length > 100 || (driverPhone || '').length > 30) {
+        return res.status(400).json({ error: 'Invalid driver name or phone' });
+      }
+      driverName  = driverName  || null;
+      driverPhone = driverPhone || null;
     }
-    await pool.query(
+
+    const [result] = await pool.query(
       'UPDATE customer_order SET driver_name = ?, driver_phone = ? WHERE id = ?',
-      [driverName || null, driverPhone || null, req.params.id]
+      [driverName, driverPhone, orderId]
     );
-    emitOrderDriverAssigned(Number(req.params.id), { driverName, driverPhone });
-    res.json({ id: Number(req.params.id), driverName, driverPhone });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    emitOrderDriverAssigned(orderId, { driverName, driverPhone });
+    res.json({ id: orderId, driverName, driverPhone });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });

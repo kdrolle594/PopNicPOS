@@ -102,6 +102,41 @@ async function run() {
       console.log('✔  Made app_user.auth_uid nullable (employee pre-registration)');
     }
 
+    // 5. app_user.email must be unique — first-login linking matches on email, so
+    // two rows sharing an address leave one of them permanently unreachable. This
+    // is how a driver who signed in before being pre-registered ended up stuck on
+    // the customer role with an orphaned employee row beside them.
+    const [emailIdx] = await conn.query(`
+      SELECT 1 FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME   = 'app_user'
+        AND INDEX_NAME   = 'uq_app_user_email'
+    `);
+    if (emailIdx.length > 0) {
+      console.log('✔  app_user.email already unique — skipping');
+    } else {
+      const [dupes] = await conn.query(`
+        SELECT email, COUNT(*) AS n, GROUP_CONCAT(id ORDER BY id) AS ids
+        FROM app_user
+        WHERE email IS NOT NULL
+        GROUP BY email
+        HAVING n > 1
+      `);
+      if (dupes.length > 0) {
+        console.warn('⚠  Cannot add UNIQUE(email) — duplicate emails found. Resolve these first:');
+        for (const d of dupes) {
+          console.warn(`     ${d.email} → app_user ids ${d.ids}`);
+        }
+        console.warn('   Keep the row whose auth_uid is set (the account they actually sign in as),');
+        console.warn('   move its employee_profile role across, then delete the auth_uid IS NULL row.');
+      } else {
+        await conn.query(
+          'ALTER TABLE app_user ADD UNIQUE KEY uq_app_user_email (email)'
+        );
+        console.log('✔  Added UNIQUE(email) to app_user');
+      }
+    }
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);

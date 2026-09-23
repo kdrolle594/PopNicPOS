@@ -17,8 +17,8 @@ const ROLE_VIEWS = {
   driver:   ['driver'],
   cashier:  ['pos', 'kitchen'],
   kitchen:  ['kitchen'],
-  manager:  ['dashboard', 'pos', 'kitchen', 'inventory', 'menu', 'loyalty', 'analytics'],
-  admin:    ['dashboard', 'pos', 'kitchen', 'inventory', 'menu', 'loyalty', 'analytics', 'users'],
+  manager:  ['dashboard', 'pos', 'kitchen', 'inventory', 'menu', 'loyalty', 'analytics', 'driver'],
+  admin:    ['dashboard', 'pos', 'kitchen', 'inventory', 'menu', 'loyalty', 'analytics', 'users', 'customer', 'driver'],
 };
 
 let storeInstance;

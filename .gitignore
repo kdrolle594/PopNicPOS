@@ -73,3 +73,6 @@ ca.pem
 CLAUDE.md
 
 
+.vercel
+.env*
+.superpowers/
