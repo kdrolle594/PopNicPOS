@@ -4,7 +4,7 @@
 
 **Goal:** Rebuild PopNic's visual language on Uber's structural rules while keeping the existing blue/brown brand, and let guests browse the menu and fill a cart before being prompted to sign in exactly once, at checkout.
 
-**Architecture:** A CSS custom-property token layer (light + dark) feeds Tailwind v4 via `@theme inline`. Ten hand-rolled Vue primitives consume those tokens. `App.vue` becomes a thin router over two shells — `StorefrontShell` (customers and guests, comfortable density) and `ConsoleShell` (staff, compact density). A new `useCartStore` singleton mirrors the cart to `sessionStorage` so it survives the Auth0 redirect, which is the feature's single point of failure and the only thing covered by automated tests.
+**Architecture:** A CSS custom-property token layer feeds Tailwind v4 via `@theme inline`. Ten hand-rolled Vue primitives consume those tokens. `App.vue` becomes a thin router over two shells — `StorefrontShell` (customers and guests, comfortable density) and `ConsoleShell` (staff, compact density). A new `useCartStore` singleton mirrors the cart to `sessionStorage` so it survives the Auth0 redirect, which is the feature's single point of failure and the only thing covered by automated tests.
 
 **Tech Stack:** Vue 3 (`<script setup>`), Vite 6, Tailwind CSS v4 (CSS-first, no `tailwind.config.js`), Express 5, MySQL2, Auth0 (`@auth0/auth0-vue`), Ably, Leaflet, Chart.js. Vitest is added in Task 5 for one store.
 
@@ -21,11 +21,12 @@ Every task's requirements implicitly include this section.
 - **No Vue Router.** View switching stays a `currentView` ref over a `viewMap` object.
 - **No Pinia.** Stores are hand-rolled singletons matching `usePosStore` / `useAuthStore`.
 - **No Tailwind config file.** Tailwind v4 is configured in CSS only.
+- **No dark mode.** One theme only. Do not add a dark token set, a theme toggle, `data-theme` switching, a `prefers-color-scheme` block, or a `dark:` Tailwind variant. Tokens stay CSS custom properties because that is how a palette stays changeable, not because a second palette is coming.
 - **Never reference a Tailwind palette literal.** `bg-blue-600`, `text-gray-500`, `border-amber-200` and every sibling are banned in new code. Use the semantic classes from Task 1.
 - **Guests never place orders.** Browsing and cart building are open; `POST /api/orders` always requires authentication.
 - **Totals are computed server-side.** The client must never send a total it expects to be trusted.
 - **Brand:** primary `#3A8FBA`, secondary `#8B6B4A`. Secondary is for loyalty and tier accents only and never competes with primary.
-- **Accessibility:** all body text meets WCAG AA (4.5:1) in both themes; `--ink-subtle` is decorative/redundant text only; every interactive control is keyboard reachable with a visible focus ring.
+- **Accessibility:** all body text meets WCAG AA (4.5:1); `--ink-subtle` is decorative/redundant text only; every interactive control is keyboard reachable with a visible focus ring.
 - **Motion:** all transitions disabled under `prefers-reduced-motion: reduce`.
 - **Node >= 20.**
 - **Commit at the end of every task.** Never bundle two tasks into one commit.
@@ -70,7 +71,7 @@ Wave 5 and wave 6 can run concurrently — they touch disjoint file sets.
 
 ## Verification Gates
 
-**A subagent's self-report is not verification.** A subagent that just wrote code is the worst available judge of whether it works: it has motivated reasoning toward reporting success, and the code reads correctly to it because it is still holding the intent in context. Then its context is discarded and an unearned "verified in both themes" becomes load-bearing for every downstream task.
+**A subagent's self-report is not verification.** A subagent that just wrote code is the worst available judge of whether it works: it has motivated reasoning toward reporting success, and the code reads correctly to it because it is still holding the intent in context. Then its context is discarded and an unearned "verified visually" becomes load-bearing for every downstream task.
 
 Three tiers. Do not collapse them.
 
@@ -82,7 +83,7 @@ Never accept a subagent's word on any of these. They take seconds and return obj
 npm run build                      # must exit 0
 npm test                           # must pass (from Task 0 onward)
 
-# Palette-literal sweep — dark mode is silently broken wherever one survives
+# Palette-literal sweep — every survivor is a view still shipping the wrong blue
 grep -rnE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}" <files the task touched>
 
 # Blocking-dialog sweep
@@ -109,13 +110,13 @@ Neither the orchestrator nor any subagent can *see* whether the design works. Vi
 |---|---|
 | **After Task 1** | Every view inherits these tokens. A wrong type rhythm or a contrast miss costs 14 tasks to unwind |
 | **After Task 2** | The primitives set the proportions and weight all ten views adopt. Same compounding |
-| **After Task 12** | Kitchen Display is the view dark mode exists for, and "readable across a bright room" cannot be asserted from a diff |
+| **After Task 12** | Kitchen Display is read at a glance from across a room; "is the status obvious?" cannot be asserted from a diff |
 
 At each gate, give the user a short list of exactly what to look at and stop. Do not dispatch the next wave until they respond.
 
 Everything else proceeds on Tier 1 + Tier 2 alone.
 
-**Delivery seam:** Tasks 1–11 deliver everything the user asked for and can ship alone. Tasks 12–15 are the consistency debt that makes dark mode valid app-wide.
+**Delivery seam:** Tasks 1–11 deliver everything the user asked for and can ship alone. Tasks 12–15 are the consistency debt that carries the redesign into the staff views.
 
 **Subagent briefing.** Each subagent sees only what you pass it. Always include: the task block verbatim, the Global Constraints section, the spec sections its task cites, and the `Produces` blocks of every task it consumes.
 
@@ -125,7 +126,7 @@ Everything else proceeds on Tier 1 + Tier 2 alone.
 
 | Path | Responsibility | Task |
 |---|---|---|
-| `src/styles/tokens.css` | Raw token values, light + dark | 1 |
+| `src/styles/tokens.css` | Raw token values | 1 |
 | `src/styles/theme.css` | Semantic roles + `@theme inline` Tailwind mapping | 1 |
 | `src/styles/base.css` | Element resets, typography scale, reduced-motion | 1 |
 | `src/styles/fonts.css` | Font import, `font-family` on `:root` | 1 |
@@ -145,7 +146,6 @@ Everything else proceeds on Tier 1 + Tier 2 alone.
 | `src/App.vue` | Thin shell router | 4 |
 | `src/components/shell/StorefrontShell.vue` | Customer/guest chrome | 4 |
 | `src/components/shell/ConsoleShell.vue` | Staff sidebar | 4 |
-| `src/components/shell/ThemeToggle.vue` | Theme switcher | 4 |
 | `src/store/useAuthStore.js` | + guest-role handling | 4 |
 | `tests/setup.js` | `sessionStorage` stub, vitest harness | 0 |
 | `src/store/useCartStore.js` | Cart + persistence + auth hop | 5 |
@@ -341,50 +341,6 @@ Announce it, read it, and hold its guidance for the whole task.
   color-scheme: light;
 }
 
-/* Dark — applied by system preference unless the user chose light… */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --surface:        #16212C;
-    --surface-sunken: #0F1720;
-    --surface-raised: #1C2A38;
-    --ink:            #E8F0F6;
-    --ink-muted:      #9FB4C4;
-    --ink-subtle:     #6B8598;
-    --line:           #243544;
-    --primary:        #5AAFD8;
-    --primary-hover:  #7CC3E5;
-    --primary-ink:    #06131C;
-    --secondary:      #C39A6F;
-    --positive:       #2DD4A7;
-    --warning:        #F0A93B;
-    --danger:         #FF6B84;
-    --chart-1: #5AAFD8; --chart-2: #C39A6F; --chart-3: #2DD4A7;
-    --chart-4: #F0A93B; --chart-5: #9B7FD4;
-    color-scheme: dark;
-  }
-}
-
-/* …and by explicit choice, which always wins. */
-:root[data-theme="dark"] {
-  --surface:        #16212C;
-  --surface-sunken: #0F1720;
-  --surface-raised: #1C2A38;
-  --ink:            #E8F0F6;
-  --ink-muted:      #9FB4C4;
-  --ink-subtle:     #6B8598;
-  --line:           #243544;
-  --primary:        #5AAFD8;
-  --primary-hover:  #7CC3E5;
-  --primary-ink:    #06131C;
-  --secondary:      #C39A6F;
-  --positive:       #2DD4A7;
-  --warning:        #F0A93B;
-  --danger:         #FF6B84;
-  --chart-1: #5AAFD8; --chart-2: #C39A6F; --chart-3: #2DD4A7;
-  --chart-4: #F0A93B; --chart-5: #9B7FD4;
-  color-scheme: dark;
-}
-
 /* ── Density — one token system, two products ──────────────── */
 .density-comfortable {
   --control-h: 44px;
@@ -403,12 +359,9 @@ Announce it, read it, and hold its guidance for the whole task.
 
 - [ ] **Step 3: Rewrite `src/styles/theme.css`**
 
-Delete the entire existing file contents — including the dead `.dark` greyscale block and the `@layer base` heading rules that set every heading to `line-height: 1.5` / `font-weight: 500`. Replace with:
+Delete the entire existing file contents — including the dead `.dark` greyscale block, the `@custom-variant dark` declaration keyed to it, and the `@layer base` heading rules that set every heading to `line-height: 1.5` / `font-weight: 500`. Replace with:
 
 ```css
-/* Dark variant now keys off [data-theme], not a .dark class. */
-@custom-variant dark (&:is([data-theme="dark"] *));
-
 @theme inline {
   --color-surface:        var(--surface);
   --color-surface-sunken: var(--surface-sunken);
@@ -564,9 +517,9 @@ Playfair Display is dropped entirely — a high-contrast serif is the opposite o
 Run: `npm run build`
 Expected: exits 0, no CSS errors, no "unknown utility" warnings.
 
-- [ ] **Step 8: Eyeball every token in both themes**
+- [ ] **Step 8: Eyeball every token**
 
-Create a throwaway page in the scratchpad directory (**not** in the repo, and not committed) that renders a swatch for each color token, each type role, both elevations, and both density classes. Open it, toggle `data-theme="dark"` on `<html>` in devtools, confirm every swatch changes and every pairing stays legible. Delete the file.
+Create a throwaway page in the scratchpad directory (**not** in the repo, and not committed) that renders a swatch for each color token, each type role, both elevations, and both density classes. Confirm every text-on-background pairing is legible and that the type scale reads as a hierarchy rather than four similar sizes. Delete the file.
 
 - [ ] **Step 9: Confirm Playfair is gone**
 
@@ -577,7 +530,7 @@ Expected: matches only in `App.vue` and `LoginView.vue` scoped styles, which Tas
 
 ```bash
 git add src/styles/
-git commit -m "feat(design): token layer, dark mode, and typography scale"
+git commit -m "feat(design): token layer and typography scale"
 ```
 
 **Do not** touch any component file in this task.
@@ -598,7 +551,7 @@ Implements the first half of spec T2.
 **Interfaces:**
 - Consumes: Task 1's token vocabulary and density classes.
 - Produces:
-  - `UiIcon` — props: `name: string` (required), `size?: number = 18`. Names available: `dashboard, pos, kitchen, inventory, menu, loyalty, analytics, customer, driver, users, cart, plus, minus, close, check, chevron-right, chevron-left, search, sun, moon, signout, location, clock, alert`.
+  - `UiIcon` — props: `name: string` (required), `size?: number = 18`. Names available: `dashboard, pos, kitchen, inventory, menu, loyalty, analytics, customer, driver, users, cart, plus, minus, close, check, chevron-right, chevron-left, search, signout, location, clock, alert`.
   - `UiButton` — props: `variant?: 'primary'|'secondary'|'ghost'|'danger' = 'primary'`, `size?: 'sm'|'md'|'lg' = 'md'`, `loading?: boolean`, `disabled?: boolean`, `block?: boolean`, `type?: string = 'button'`. Default slot is the label. Emits native `click`.
   - `UiCard` — props: `interactive?: boolean`, `padded?: boolean = true`. Slots: `default`, `header`, `footer`.
   - `UiChip` — props: `selected?: boolean`, `as?: 'button'|'span' = 'button'`. Default slot is the label.
@@ -733,7 +686,7 @@ Follow the `UiButton` pattern — scoped CSS, tokens only, no palette literals.
 
 - `UiCard`: `background: var(--surface-raised)`, `border: 1px solid var(--line)`, `border-radius: var(--radius-lg)`, `padding: var(--card-pad)` when `padded`. When `interactive`, add `cursor: pointer` and a hover state of `box-shadow: var(--elev-1)` plus `transform: translateY(-1px)`. Header and footer slots sit above/below the default slot separated by a `--line` hairline.
 - `UiChip`: pill, `height: calc(var(--control-h) - 12px)`, `padding: 0 var(--space-4)`, `border: 1px solid var(--line)`, `font-size: var(--text-sm)`, `font-weight: var(--weight-medium)`. Selected state: `background: var(--primary)`, `color: var(--primary-ink)`, `border-color: var(--primary)`. When `as === 'button'` render a `<button>` with `:aria-pressed="selected"`.
-- `UiBadge`: pill, `font-size: var(--text-caption)`, `font-weight: var(--weight-semibold)`, `padding: 2px var(--space-2)`. Each tone uses `color-mix(in srgb, var(--<tone>) 14%, transparent)` as background with the solid token as text color, so it adapts to both themes automatically.
+- `UiBadge`: pill, `font-size: var(--text-caption)`, `font-weight: var(--weight-semibold)`, `padding: 2px var(--space-2)`. Each tone uses `color-mix(in srgb, var(--<tone>) 14%, transparent)` as background with the solid token as text color, so a tone change needs one value, not two.
 
 - [ ] **Step 5: Create `UiSkeleton.vue` and `UiEmptyState.vue`**
 
@@ -746,9 +699,9 @@ Follow the `UiButton` pattern — scoped CSS, tokens only, no palette literals.
 Run: `npm run build`
 Expected: exits 0.
 
-- [ ] **Step 7: Check every primitive in both themes and both densities**
+- [ ] **Step 7: Check every primitive at both densities**
 
-Build a throwaway scratchpad page (not committed) rendering all seven primitives, every variant and every size, wrapped once in `.density-comfortable` and once in `.density-compact`. Toggle `data-theme` and confirm all remain legible. Confirm `UiButton` reaches focus by keyboard and shows the focus ring.
+Build a throwaway scratchpad page (not committed) rendering all seven primitives, every variant and every size, wrapped once in `.density-comfortable` and once in `.density-compact`. Confirm `UiButton` reaches focus by keyboard and shows the focus ring.
 
 - [ ] **Step 8: Confirm no palette literals leaked in**
 
@@ -780,7 +733,7 @@ Implements the second half of spec T2. This task retires the mechanism behind al
 **Interfaces:**
 - Consumes: Task 1 tokens; `UiButton`, `UiIcon` from Task 2.
 - Produces:
-  - `useUiStore()` → `{ state, setTheme, resolvedTheme, pushToast, dismissToast }` where `state = reactive({ theme: 'light'|'dark'|'system', toasts: [] })`. `setTheme(mode)` writes `localStorage['popnic.theme']` and sets `data-theme` on `<html>` (removing the attribute entirely when mode is `'system'`).
+  - `useUiStore()` → `{ state, pushToast, dismissToast }` where `state = reactive({ toasts: [] })`.
   - `useToast()` → `{ success(message), error(message), info(message) }`. Each returns the toast id. Toasts auto-dismiss after 5000ms; `error` does not auto-dismiss.
   - `UiModal` — props: `open: boolean` (required), `title?: string`, `sheet?: boolean` (bottom sheet on viewports under 640px), `dismissible?: boolean = true`. Emits `close`. Slots: `default`, `footer`.
   - `UiField` — props: `label: string` (required), `hint?: string`, `error?: string`, `required?: boolean`, `id?: string` (auto-generated when absent). Default slot receives `{ id, describedBy, invalid }` via slot props so the caller can bind them to its own control.
@@ -788,48 +741,15 @@ Implements the second half of spec T2. This task retires the mechanism behind al
 - [ ] **Step 1: Create `src/store/useUiStore.js`**
 
 ```js
-import { reactive, computed } from 'vue';
+import { reactive } from 'vue';
 
-const THEME_KEY = 'popnic.theme';
 let storeInstance;
 let nextToastId = 1;
-
-function readTheme() {
-  try {
-    const stored = localStorage.getItem(THEME_KEY);
-    return stored === 'light' || stored === 'dark' ? stored : 'system';
-  } catch {
-    return 'system';
-  }
-}
-
-function applyTheme(mode) {
-  const root = document.documentElement;
-  if (mode === 'system') root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', mode);
-}
 
 export function useUiStore() {
   if (storeInstance) return storeInstance;
 
-  const state = reactive({ theme: readTheme(), toasts: [] });
-  applyTheme(state.theme);
-
-  function setTheme(mode) {
-    state.theme = mode;
-    applyTheme(mode);
-    try {
-      if (mode === 'system') localStorage.removeItem(THEME_KEY);
-      else localStorage.setItem(THEME_KEY, mode);
-    } catch {
-      // Storage blocked — the in-memory choice still applies for this session.
-    }
-  }
-
-  const resolvedTheme = computed(() => {
-    if (state.theme !== 'system') return state.theme;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  const state = reactive({ toasts: [] });
 
   function pushToast({ message, tone = 'info', timeout = 5000 }) {
     const id = nextToastId++;
@@ -842,7 +762,7 @@ export function useUiStore() {
     state.toasts = state.toasts.filter((t) => t.id !== id);
   }
 
-  storeInstance = { state, setTheme, resolvedTheme, pushToast, dismissToast };
+  storeInstance = { state, pushToast, dismissToast };
   return storeInstance;
 }
 ```
@@ -921,7 +841,7 @@ Implements spec T3 (spec §5.2). `App.vue` drops from 517 lines to roughly 60.
 
 **Files:**
 - Rewrite: `src/App.vue`
-- Create: `src/components/shell/StorefrontShell.vue`, `ConsoleShell.vue`, `ThemeToggle.vue`
+- Create: `src/components/shell/StorefrontShell.vue`, `ConsoleShell.vue`
 - Modify: `src/store/useAuthStore.js`
 
 **Interfaces:**
@@ -947,14 +867,10 @@ function defaultView() {
 
 Export `isGuest` alongside the existing members. Do **not** change `ROLE_VIEWS` or `ROLE_DEFAULT_VIEW` for real roles.
 
-- [ ] **Step 2: Create `ThemeToggle.vue`**
-
-A `UiButton variant="ghost" size="sm"` cycling `system → light → dark → system` via `useUiStore().setTheme`, showing `UiIcon name="sun"` or `"moon"` per `resolvedTheme`, with an `aria-label` naming the *next* mode ("Switch to dark theme").
-
-- [ ] **Step 3: Create `StorefrontShell.vue`**
+- [ ] **Step 2: Create `StorefrontShell.vue`**
 
 Root element carries `class="density-comfortable"`. Contains:
-- A sticky top bar: wordmark (DM Sans 700, not Playfair), a `ThemeToggle`, a cart button showing the live item count from `useCartStore` (Task 5) as a `UiBadge`, and either a "Sign in" `UiButton variant="ghost"` when `auth.isGuest` or the user's initials avatar when not.
+- A sticky top bar: wordmark (DM Sans 700, not Playfair), a cart button showing the live item count from `useCartStore` (Task 5) as a `UiBadge`, and either a "Sign in" `UiButton variant="ghost"` when `auth.isGuest` or the user's initials avatar when not.
 - A horizontally scrollable category chip row beneath, which `MenuBrowser` (Task 7) fills.
 - A `<slot />` for the active view.
 - A mobile bottom bar under 640px.
@@ -962,11 +878,11 @@ Root element carries `class="density-comfortable"`. Contains:
 
 Until Task 5 lands, stub the cart count as `0` and leave a `// TASK 5` comment at the exact line — the Task 8 subagent wires it.
 
-- [ ] **Step 4: Create `ConsoleShell.vue`**
+- [ ] **Step 3: Create `ConsoleShell.vue`**
 
-Move the entire sidebar — markup and scoped CSS — out of `App.vue`. Root carries `class="density-compact"`. Convert every hex literal in the moved CSS to a token (`#EEF6FB` → `var(--surface-sunken)`, `#1A3D56` → `var(--ink)`, `#3A8FBA` → `var(--primary)`, `#8B6B4A` → `var(--secondary)`, `rgba(58,143,186,.12)` → `var(--line)`, and so on). Delete the blue-tinted box-shadows; use `var(--elev-1)` or a plain `--line` border. Nav items render `UiIcon`. Keep the mobile drawer behavior and the `auth.allowedViews()` filter exactly as they are. Add `ThemeToggle` to the footer beside Sign Out. Mount `<UiToast />` here too.
+Move the entire sidebar — markup and scoped CSS — out of `App.vue`. Root carries `class="density-compact"`. Convert every hex literal in the moved CSS to a token (`#EEF6FB` → `var(--surface-sunken)`, `#1A3D56` → `var(--ink)`, `#3A8FBA` → `var(--primary)`, `#8B6B4A` → `var(--secondary)`, `rgba(58,143,186,.12)` → `var(--line)`, and so on). Delete the blue-tinted box-shadows; use `var(--elev-1)` or a plain `--line` border. Nav items render `UiIcon`. Keep the mobile drawer behavior and the `auth.allowedViews()` filter exactly as they are. Mount `<UiToast />` here too.
 
-- [ ] **Step 5: Rewrite `App.vue`**
+- [ ] **Step 4: Rewrite `App.vue`**
 
 ```vue
 <script setup>
@@ -1004,12 +920,12 @@ watch(
 
 The template renders the loading splash while `auth0.isLoading`, then `StorefrontShell` or `ConsoleShell`. **`LoginView` is no longer a gate** — it is reached only by the Sign in action, which calls `auth.login()` directly. All sidebar markup and CSS are gone from this file.
 
-- [ ] **Step 6: Verify the build**
+- [ ] **Step 5: Verify the build**
 
 Run: `npm run build`
 Expected: exits 0.
 
-- [ ] **Step 7: Verify every role lands correctly**
+- [ ] **Step 6: Verify every role lands correctly**
 
 Run `npm start`. Check each case:
 
@@ -1023,16 +939,12 @@ Run `npm start`. Check each case:
 | manager | `ConsoleShell`, 8 nav items |
 | admin | `ConsoleShell`, 10 items; "Customer View" swaps to `StorefrontShell` with a back affordance |
 
-- [ ] **Step 8: Verify theme persistence**
-
-Toggle to dark, hard-reload. Expected: still dark. Set to system, reload, flip the OS preference. Expected: follows the OS.
-
-- [ ] **Step 9: Confirm `App.vue` shrank**
+- [ ] **Step 7: Confirm `App.vue` shrank**
 
 Run: `wc -l src/App.vue`
 Expected: under 100 lines (was 517).
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/App.vue src/components/shell/ src/store/useAuthStore.js
@@ -1985,7 +1897,7 @@ Each task follows the identical procedure below. The only differences are the fi
 | `bg-red-*`, `text-red-*` | `bg-danger` / `text-danger` |
 | `rounded`, `rounded-lg`, `rounded-xl` | `rounded-md` / `rounded-lg` / `rounded-xl` from the token scale |
 
-For tinted backgrounds (badges, status pills), use `color-mix(in srgb, var(--<token>) 14%, transparent)` rather than a lighter palette step — it adapts to both themes with no second value.
+For tinted backgrounds (badges, status pills), use `color-mix(in srgb, var(--<token>) 14%, transparent)` rather than a lighter palette step — one value instead of two, and it tracks the token if it changes.
 
 ### Shared procedure
 
@@ -2000,7 +1912,7 @@ For tinted backgrounds (badges, status pills), use `color-mix(in srgb, var(--<to
 ```bash
 grep -rnE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}" <file>
 ```
-Expected: no output. **This is the completion gate — dark mode is silently broken wherever a literal survives.**
+Expected: no output. **This is the completion gate — every survivor is a view still rendering `#2563eb` where the brand is `#3A8FBA`.**
 
 - [ ] **Step 8: Verify zero blocking dialogs remain.**
 
@@ -2009,16 +1921,16 @@ grep -nE "alert\(|confirm\(" <file>
 ```
 Expected: no output.
 
-- [ ] **Step 9: Verify visually** — both themes, at compact density, at 375px / 768px / 1440px.
+- [ ] **Step 9: Verify visually** — at compact density, at 375px / 768px / 1440px.
 - [ ] **Step 10: Commit** with message `refactor(<view>): convert to design tokens`.
 
 ### Task 12 — POS Terminal and Kitchen Display
 
 **Files:** `src/components/POSTerminal.vue` (26 literals, 5 `alert()`), `src/components/KitchenDisplay.vue` (25 literals, 1 `alert()`)
 
-**TIER 3 HUMAN GATE.** When this task completes, halt. "Readable across a bright room" cannot be asserted from a diff — it needs eyes on a screen. Ask the user to review the Kitchen Display in dark mode before treating the re-skin wave as done.
+**TIER 3 HUMAN GATE.** When this task completes, halt. Kitchen Display is read at a glance, from a distance, under pressure — whether a status is instantly obvious cannot be asserted from a diff. Ask the user to review it before treating the re-skin wave as done.
 
-**Additional requirement for `KitchenDisplay`:** this is the view dark mode exists for. Verify each order-status color holds AA contrast against `--surface-raised` in dark, and that a card's status is readable across a room. Status colors map to `UiBadge` tones: pending → `warning`, preparing → `primary`, ready → `positive`, completed → `neutral`, cancelled → `danger`.
+**Additional requirement for `KitchenDisplay`:** verify each order-status color holds AA contrast against `--surface-raised`, and that a card's status is readable across a room at a glance. Status colors map to `UiBadge` tones: pending → `warning`, preparing → `primary`, ready → `positive`, completed → `neutral`, cancelled → `danger`.
 
 ### Task 13 — Inventory, Menu Management, Loyalty
 
@@ -2034,9 +1946,9 @@ Expected: no output.
 
 **Additional requirement for `UserManagement`:** its `confirm()` guards irreversible access removal. The `UiModal` replacement must name the user in the body and use a `danger` confirm button, never a default-focused one.
 
-**Additional requirement for `DriverView`:** GPS broadcast state must be unmistakable in both themes — use `positive` for broadcasting and `ink-muted` for idle, with text, not color alone, carrying the meaning.
+**Additional requirement for `DriverView`:** GPS broadcast state must be unmistakable — use `positive` for broadcasting and `ink-muted` for idle, with text, not color alone, carrying the meaning.
 
-**`Dashboard.vue` is alignment only:** it already uses scoped CSS with tokens. Convert its remaining hex literals to the Task 1 token names and confirm dark mode. Do not restructure it.
+**`Dashboard.vue` is alignment only:** it already uses scoped CSS with tokens. Convert its remaining hex literals to the Task 1 token names. Do not restructure it.
 
 ---
 
@@ -2048,7 +1960,7 @@ Implements spec T14 (spec §8). Dispatch in parallel with Tasks 12–14.
 - Modify: `src/components/Analytics.vue`
 
 **Interfaces:**
-- Consumes: Task 1's `--chart-1` … `--chart-5`; `useUiStore().resolvedTheme` from Task 3.
+- Consumes: Task 1's `--chart-1` … `--chart-5`.
 - Produces: nothing new.
 
 - [ ] **Step 1: Read the chart palette from tokens at runtime**
@@ -2069,19 +1981,15 @@ function withAlpha(hex, alpha) {
 
 Line `borderColor` uses `chartPalette()[0]`; its fill uses `withAlpha(chartPalette()[0], 0.2)`. Bar and doughnut datasets consume the palette in order.
 
-- [ ] **Step 2: Re-render on theme change**
+- [ ] **Step 2: Pull chart chrome from tokens too**
 
-Axis ticks, grid lines and legend labels must also come from tokens — `--ink-muted` for ticks and legend, `--line` for the grid. Chart.js caches its options, so watch the theme and rebuild:
-
-```js
-watch(() => ui.resolvedTheme.value, () => { rebuildCharts(); });
-```
+Axis ticks, grid lines and legend labels are currently Chart.js defaults, which are a different grey from `--ink-muted`. Set ticks and legend to `--ink-muted` and the grid to `--line`, read the same way as the palette.
 
 - [ ] **Step 3: Convert the remaining 17 literals** using the Tasks 12–14 mapping table.
 
-- [ ] **Step 4: Verify in both themes**
+- [ ] **Step 4: Verify the charts are on-brand**
 
-Expected: every chart's series, axes, grid and legend are legible in dark; no light-mode chart on a dark page; switching theme with charts on screen updates them without a reload.
+Expected: series colors match the brand palette rather than Tailwind defaults; axes, grid and legend sit in the same grey as the surrounding UI; nothing renders in `#2563eb`.
 
 - [ ] **Step 5: Verify zero literals remain**
 
@@ -2094,7 +2002,7 @@ Expected: no output.
 
 ```bash
 git add src/components/Analytics.vue
-git commit -m "refactor(analytics): theme-aware chart palette"
+git commit -m "refactor(analytics): brand chart palette from design tokens"
 ```
 
 ---
@@ -2110,7 +2018,7 @@ Run after every task has landed. This is spec §10.
 ```bash
 grep -rnE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}" src/
 ```
-Expected: no output. Anything here means dark mode is broken there.
+Expected: no output. Anything here is a view still rendering off-brand colors.
 
 - [ ] **Blocking-dialog sweep:**
 
@@ -2120,8 +2028,7 @@ grep -rnE "alert\(|confirm\(" src/
 Expected: no output. Was 16 `alert()` + 4 `confirm()`.
 
 - [ ] **Per-role smoke pass:** guest, customer, cashier, kitchen, driver, manager, admin — each lands on the right shell and default view, and every nav item renders without error.
-- [ ] **Both themes, every view.**
 - [ ] **Three breakpoints:** 375px, 768px, 1440px — no horizontal scroll, no clipped controls.
 - [ ] **The guest path end to end:** browse → customize → cart → reload (cart survives) → sign in → return (cart survives) → checkout → order placed → tracked live.
 - [ ] **Network check:** a logged-out visitor fires exactly one `/api/` request and no 401/403; the initial bundle contains no Leaflet.
-- [ ] **Accessibility:** full keyboard path through checkout; focus trapped and restored in every modal; AA contrast on all body text in both themes; `prefers-reduced-motion` honored.
+- [ ] **Accessibility:** full keyboard path through checkout; focus trapped and restored in every modal; AA contrast on all body text; `prefers-reduced-motion` honored.

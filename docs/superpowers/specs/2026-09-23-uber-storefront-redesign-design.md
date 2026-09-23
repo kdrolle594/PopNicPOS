@@ -2,7 +2,7 @@
 
 **Status:** Approved design, ready for implementation planning
 **Date:** 2026-09-23
-**Scope:** Full-app visual redesign (10 views) + guest menu browsing and cart before login + dark mode
+**Scope:** Full-app visual redesign (10 views) + guest menu browsing and cart before login
 
 ---
 
@@ -21,6 +21,7 @@ Two outcomes, one project:
 
 Do not do these. They have been explicitly considered and excluded.
 
+- **No dark mode.** One theme only. Do not add a dark token set, a theme toggle, `data-theme` switching, a `prefers-color-scheme` block, or a `dark:` Tailwind variant. Tokens remain CSS custom properties because that is how a palette stays changeable, not because a second palette is coming.
 - **No image uploads.** `image_url` stores an external URL string. No blob storage, no upload widget. (Vercel Blob would be a separate project.)
 - **No component library adoption.** `shadcn ^4.1.1` sits unused in `devDependencies`; it is the React CLI, and `shadcn-vue` is a different unrelated project. Do not install either. Do not add any UI dependency.
 - **No router.** The app deliberately has no Vue Router. View switching stays a `currentView` ref over a `viewMap` object.
@@ -56,7 +57,7 @@ Every statement here was checked against the repo on 2026-09-23. Subagents shoul
 | `LoyaltyManagement.vue` | 11 |
 | `Dashboard.vue`, `LoginView.vue` | 0 (already tokenized) |
 
-These 266 literals are light-mode-only. **Dark mode is invalid until all of them become semantic token classes.** This is the largest mechanical work item in the project.
+**These literals are the look-and-feel problem, not a tidiness problem.** `bg-blue-600` is `#2563eb`; the brand primary is `#3A8FBA`. The app currently ships two different blues, two different greys, and two different greens depending on which file you are looking at. Converting them to semantic tokens is what makes the redesign actually land in the staff views rather than stopping at the storefront. It is also the largest mechanical work item in the project.
 
 **File sizes.** `CustomerView.vue` 950 lines, `POSTerminal.vue` 585, `App.vue` 517, `Dashboard.vue` 425, `DriverView.vue` 327.
 
@@ -66,7 +67,7 @@ These 266 literals are light-mode-only. **Dark mode is invalid until all of them
 
 **Analytics ignores its own tokens.** `Analytics.vue` hardcodes five chart.js color arrays (`#2563eb`, `#7c3aed`, `#16a34a`, `#ea580c`, …) at lines 143–178, while `--chart-1` through `--chart-5` already exist unused in `theme.css`.
 
-**Dead dark block.** `theme.css` has a `.dark` selector defining a generic greyscale palette. Nothing in the app ever applies the `.dark` class. It is unused and brand-inconsistent.
+**Dead dark block.** `theme.css` has a `.dark` selector defining a generic greyscale palette, plus a `@custom-variant dark` declaration keyed to it. Nothing in the app ever applies the `.dark` class. Both are dead and get deleted.
 
 **Menu schema has no imagery.** `menu_item` (`database/*.sql:59`) has `name`, `category`, `price`, `cost`, `available`, `is_combo`, `points_value`. No image, no description.
 
@@ -108,8 +109,6 @@ Replace the `@layer base` heading rules in `theme.css` with these. The current u
 
 ### 4.2 Color roles
 
-**Light:**
-
 ```
 --surface           #FFFFFF
 --surface-sunken    #F7FAFC   /* page bg; was #EEF6FB — too blue, tints food photography */
@@ -128,38 +127,20 @@ Replace the `@layer base` heading rules in `theme.css` with these. The current u
 --chart-1..5        #3A8FBA  #8B6B4A  #0E9E7A  #B45309  #6B4FA8
 ```
 
-**Dark:**
-
-```
---surface           #16212C
---surface-sunken    #0F1720
---surface-raised    #1C2A38
---ink               #E8F0F6
---ink-muted         #9FB4C4
---ink-subtle        #6B8598
---line              #243544
---primary           #5AAFD8   /* lightened to hold contrast on dark */
---primary-hover     #7CC3E5
---primary-ink       #06131C   /* dark text on light-blue button */
---secondary         #C39A6F
---positive          #2DD4A7
---warning           #F0A93B
---danger            #FF6B84
---chart-1..5        #5AAFD8  #C39A6F  #2DD4A7  #F0A93B  #9B7FD4
-```
-
 All body-text pairings must meet WCAG AA (4.5:1); `--ink-subtle` is reserved for decorative or redundant text only.
 
-### 4.3 Theming mechanics
+**There is no dark theme.** This is a deliberate scope decision, not an oversight — see §2. Tokens are still defined as CSS custom properties on `:root` rather than hardcoded, because that is what makes the palette changeable at all, but only one set of values exists.
+
+### 4.3 Stylesheet structure
 
 Split `src/styles/` into:
 
-- `tokens.css` — raw values, light set on `:root`, dark set under both `@media (prefers-color-scheme: dark)` (guarded so an explicit light choice wins) and `[data-theme="dark"]`.
+- `tokens.css` — raw values on `:root`.
 - `theme.css` — semantic roles + `@theme inline` mapping for Tailwind.
 - `base.css` — element resets and the typography scale from §4.1.
 - `index.css` — imports in order: `fonts` → `tailwind` → `tokens` → `theme` → `base`.
 
-Switch the Tailwind dark variant from `@custom-variant dark (&:is(.dark *))` to key off `[data-theme="dark"]`. Theme choice persists in `localStorage`; absent a choice, follow `prefers-color-scheme`. Delete the dead `.dark` greyscale block.
+Delete the dead `.dark` greyscale block from `theme.css` and the `@custom-variant dark (&:is(.dark *))` declaration alongside it. Nothing applies the `.dark` class today and nothing will.
 
 ### 4.4 Elevation, radii, motion, density
 
@@ -203,7 +184,7 @@ src/
   components/
     ui/            UiButton UiCard UiField UiChip UiBadge
                    UiModal UiToast UiEmptyState UiSkeleton UiIcon
-    shell/         StorefrontShell ConsoleShell ThemeToggle
+    shell/         StorefrontShell ConsoleShell
     storefront/    MenuBrowser MenuItemCard ItemCustomizeSheet
                    CartPanel CheckoutPanel OrderTracker DeliveryMap
     (existing 10 views — restyled in place)
@@ -225,7 +206,7 @@ role === 'customer'        → StorefrontShell
 any staff role             → ConsoleShell
 ```
 
-- **`StorefrontShell`** — top bar (brand, category scroller, cart button with live count, Sign in link, ThemeToggle), mobile bottom bar, `density-comfortable`.
+- **`StorefrontShell`** — top bar (brand, category scroller, cart button with live count, Sign in link), mobile bottom bar, `density-comfortable`.
 - **`ConsoleShell`** — the existing sidebar restyled, `density-compact`. Nav still filtered by `auth.allowedViews()`.
 - **Admin cross-over.** `ROLE_VIEWS.admin` includes `customer`. Selecting that nav item swaps to `StorefrontShell` with a persistent "Back to console" affordance.
 
@@ -244,7 +225,7 @@ Behavior:
 - `pendingCheckout` is set immediately before `loginWithRedirect()` and consumed on the next boot.
 - Owns cart line identity via the existing `optionSignature()` logic (move it here from `CustomerView`), so an item with different options is a distinct line.
 
-**`useUiStore.js`** — theme mode (`'light' | 'dark' | 'system'`, persisted to `localStorage`, applied as `data-theme` on `<html>`) and the toast queue.
+**`useUiStore.js`** — the toast queue.
 
 ### 5.4 Guest-aware data loading
 
@@ -334,8 +315,8 @@ Four items, all additive.
 
 All nine non-tokenized views convert their 266 hardcoded palette literals to semantic token classes. `Dashboard.vue` and `LoginView.vue` are the reference pattern — they already use tokens.
 
-- **`KitchenDisplay.vue`** gets deliberate dark-mode treatment; it is the view that genuinely benefits, and its status colors must hold contrast in a bright room.
-- **`Analytics.vue`** reads its chart palette from `--chart-1..5` at runtime via `getComputedStyle` and re-renders on theme change. Hardcoded arrays at lines 143–178 are removed. Without this, dark mode leaves light-mode charts on a dark page.
+- **`KitchenDisplay.vue`** needs its order-status colors mapped to the semantic tokens and checked for AA contrast — it is read at a glance, from a distance, in a bright room.
+- **`Analytics.vue`** reads its chart palette from `--chart-1..5` via `getComputedStyle` rather than hardcoding hex arrays, so the charts match the brand instead of Tailwind defaults. Hardcoded arrays at lines 143–178 are removed.
 - **The 4 `confirm()` calls** become `UiModal` confirmations. These guard destructive deletes — including "Remove user, they lose access immediately" — and a native confirm is easy to fat-finger past.
 - **The 16 `alert()` calls** become toasts.
 
@@ -358,8 +339,8 @@ Tasks are ordered by dependency. Each is sized for a single subagent. `Depends o
 
 **Files:** `src/styles/tokens.css` (new), `theme.css` (rewrite), `base.css` (new), `index.css`, `fonts.css`
 **Depends on:** nothing
-**Do:** Implement §4.1–§4.4 in full — both color sets, type scale, elevation, radii, motion, spacing, density classes, `[data-theme]` dark variant. Delete the dead `.dark` greyscale block. Remove Playfair from UI. Move `font-family` off the `*` selector.
-**Done when:** `npm run build` is clean; every token has been eyeballed in both themes on a throwaway scratch page (**not committed** — build it in the scratchpad and delete it); no existing view has visually regressed beyond typography weight/leading.
+**Do:** Implement §4.1–§4.4 in full — the color roles, type scale, elevation, radii, motion, spacing, density classes. Delete the dead `.dark` greyscale block. Remove Playfair from UI. Move `font-family` off the `*` selector.
+**Done when:** `npm run build` is clean; every token has been eyeballed on a throwaway scratch page (**not committed** — build it in the scratchpad and delete it); no existing view has visually regressed beyond typography weight/leading.
 **Do not:** touch any component file.
 
 ### T2 — UI primitives
@@ -367,16 +348,16 @@ Tasks are ordered by dependency. Each is sized for a single subagent. `Depends o
 **Files:** `src/components/ui/*`, `src/lib/useToast.js`, `src/store/useUiStore.js`
 **Depends on:** T1
 **Do:** Build `UiButton` (variants primary/secondary/ghost/danger, sizes sm/md/lg, loading + disabled states), `UiCard`, `UiField` (label + hint + error, correctly associated for a11y), `UiChip`, `UiBadge` (order-status colors), `UiModal` (focus trap, Esc, scroll lock, mobile bottom-sheet variant), `UiToast` + `useToast`, `UiEmptyState`, `UiSkeleton`, `UiIcon`. `useUiStore` handles theme persistence and the toast queue.
-**Done when:** every primitive renders correctly in both themes and both density classes; `UiModal` traps focus and restores it on close; keyboard navigation works throughout.
+**Done when:** every primitive renders correctly at both density classes; `UiModal` traps focus and restores it on close; keyboard navigation works throughout.
 **Do not:** modify existing views yet.
 
 ### T3 — Shell split
 
 **Files:** `src/App.vue`, `src/components/shell/*`, `src/store/useAuthStore.js`
 **Depends on:** T2
-**Do:** Reduce `App.vue` to the §5.2 router. Build `StorefrontShell`, `ConsoleShell`, `ThemeToggle`. Move icons into `UiIcon`. Guests reach `StorefrontShell`. Preserve `auth.allowedViews()` filtering and the admin cross-over affordance.
+**Do:** Reduce `App.vue` to the §5.2 router. Build `StorefrontShell` and `ConsoleShell`. Move icons into `UiIcon`. Guests reach `StorefrontShell`. Preserve `auth.allowedViews()` filtering and the admin cross-over affordance.
 **`useAuthStore` needs guest handling.** A guest has `state.role === null`, for which `allowedViews()` currently returns `[]` and `defaultView()` returns `'dashboard'` — a view a guest must never reach. Add an explicit unauthenticated case that resolves to the storefront, without changing `ROLE_VIEWS` or `ROLE_DEFAULT_VIEW` for real roles.
-**Done when:** every role lands on its correct shell and default view; logged-out visitors see the storefront shell and can never reach a console view; theme toggle persists across reload.
+**Done when:** every role lands on its correct shell and default view; logged-out visitors see the storefront shell and can never reach a console view.
 
 ### T4 — Cart store
 
@@ -430,21 +411,21 @@ Tasks are ordered by dependency. Each is sized for a single subagent. `Depends o
 ### T11–T13 — Staff console re-skin *(the long pole)*
 
 **Depends on:** T2
-Split by view so subagents can run in parallel; each converts hardcoded literals to tokens, replaces `alert()`/`confirm()`, and verifies both themes at compact density.
+Split by view so subagents can run in parallel; each converts hardcoded literals to tokens, replaces `alert()`/`confirm()`, and verifies the result at compact density.
 
-- **T11:** `POSTerminal` (26 literals, 5 alerts), `KitchenDisplay` (25, 1 alert, deliberate dark treatment)
+- **T11:** `POSTerminal` (26 literals, 5 alerts), `KitchenDisplay` (25, 1 alert, status-color contrast check)
 - **T12:** `Inventory` (19, 1 alert, 1 confirm), `MenuManagement` (22, 1 alert, 1 confirm, **plus the new image/description fields**), `LoyaltyManagement` (11, 1 alert, 1 confirm)
 - **T13:** `UserManagement` (36, 1 confirm), `DriverView` (31), `Dashboard` (already tokenized — align only)
 
 ### T14 — Analytics
 
 **Depends on:** T2
-**Do:** §8 chart-token work. Remove the five hardcoded arrays at lines 143–178; read `--chart-1..5` at runtime; re-render on theme change.
-**Done when:** charts are legible and on-brand in both themes.
+**Do:** §8 chart-token work. Remove the five hardcoded arrays at lines 143–178; read `--chart-1..5` at runtime.
+**Done when:** charts are legible and on-brand.
 
 ### Natural delivery split
 
-**T1–T10 deliver everything the user asked for** and can ship independently. **T11–T14 are the consistency debt that makes dark mode valid across the app.** If the storefront needs to be seen working before committing to the full sweep, that is the seam.
+**T1–T10 deliver everything the user asked for** and can ship independently. **T11–T14 are the consistency debt that carries the redesign into the staff views.** If the storefront needs to be seen working before committing to the full sweep, that is the seam.
 
 ---
 
@@ -456,11 +437,11 @@ Everything else verifies as:
 
 1. `npm run build` clean.
 2. **Per-role smoke pass** — guest, customer, cashier, kitchen, driver, manager, admin. Each lands on the right shell and default view, and every nav item renders.
-3. **Both themes**, every view.
+3. **Visual pass**, every view.
 4. **Three breakpoints** — 375px, 768px, 1440px.
 5. **The guest path end to end** — browse → customize → cart → redirect → return → checkout → order placed → tracked.
 6. **Network check** — a logged-out visitor triggers no failed authenticated requests, and the initial bundle contains no Leaflet.
-7. **Accessibility** — keyboard path through checkout, focus trapped and restored in modals, AA contrast on all body text in both themes.
+7. **Accessibility** — keyboard path through checkout, focus trapped and restored in modals, AA contrast on all body text.
 
 ---
 
@@ -468,8 +449,8 @@ Everything else verifies as:
 
 | Risk | Mitigation |
 |---|---|
-| 266 literal conversions is a large mechanical surface with real regression potential | Split across T11–T13 by view; one subagent per group; per-view visual check in both themes |
+| 266 literal conversions is a large mechanical surface with real regression potential | Split across T11–T13 by view; one subagent per group; per-view visual check |
 | Cart loss across the Auth0 redirect is the feature's single point of failure | The only automated-test coverage in the project (T4) targets exactly this |
-| Dark mode looks done but is broken wherever a literal survives | Grep for the palette-literal pattern as a completion gate on T11–T14 |
+| A palette literal survives and a staff view keeps shipping the wrong blue | Grep for the palette-literal pattern as a completion gate on T11–T14 |
 | `CustomerView` deletion (T10) drops behavior nobody noticed | T10 gated behind T6–T9; diff old component against new surface before deleting |
 | Storefront regresses first paint | Leaflet dynamic import verified in T9; guest loads menu only (T6) |
