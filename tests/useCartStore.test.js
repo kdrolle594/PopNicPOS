@@ -109,6 +109,15 @@ describe('reconcileWithMenu', () => {
     expect(removed).toEqual([]);
     expect(cart.state.items).toHaveLength(1);
   });
+
+  it('drops an item that is present but marked unavailable', async () => {
+    const cart = await freshStore();
+    cart.addLine(MARGHERITA);
+    cart.addLine(PEPPERONI_L);
+    const { removed } = cart.reconcileWithMenu([{ id: 1, available: true }, { id: 2, available: false }]);
+    expect(cart.state.items).toHaveLength(1);
+    expect(removed).toEqual(['Pepperoni']);
+  });
 });
 
 describe('storage unavailable', () => {
