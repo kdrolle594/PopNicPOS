@@ -13,7 +13,9 @@
     "server": "node server/index.js",
     "start": "concurrently \"node server/index.js\" \"vite\"",
     "seed": "node server/seed.js",
-    "dev:all": "node server/seed.js & vite"
+    "dev:all": "node server/seed.js & vite",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@auth0/auth0-vue": "^2.5.0",
@@ -36,7 +38,8 @@
     "shadcn": "^4.1.1",
     "tailwindcss": "4.1.12",
     "tw-animate-css": "1.3.8",
-    "vite": "^6.4.3"
+    "vite": "^6.4.3",
+    "vitest": "^4.1.11"
   },
   "pnpm": {
     "overrides": {
