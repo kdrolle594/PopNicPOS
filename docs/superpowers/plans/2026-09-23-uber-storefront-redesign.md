@@ -47,9 +47,6 @@ Task 0 (test harness) ─┬─ Task 5 (cart store) ─────────�
                        └─ Task 6 (backend) ─────────────────────────── (feeds Task 7)
 
 Task 1 (tokens) ─ Task 2 (static primitives) ─ Task 3 (interactive primitives) ─┬─ Task 4 (shells) ─ Task 7 ─ Task 8 ─ Task 9 ─ Task 10 ─ Task 11
-                                                                                ├─ Task 12 (POS + Kitchen)
-                                                                                ├─ Task 13 (Inventory + Menu + Loyalty)
-                                                                                ├─ Task 14 (Users + Driver + Dashboard)
                                                                                 └─ Task 15 (Analytics)
 ```
 
@@ -62,10 +59,10 @@ Task 1 (tokens) ─ Task 2 (static primitives) ─ Task 3 (interactive primitive
 | 2 | Task 2 | Needs Task 1 |
 | 3 | Task 3 | Needs Task 2 |
 | 4 | Task 4 | Needs Task 3 |
-| 5 | Tasks 12, 13, 14, 15 **in parallel** | Four subagents, no shared files |
+| 5 | Task 15 | Independent of the storefront chain |
 | 6 | Tasks 7 → 8 → 9 → 10 → 11 | Strictly sequential; each builds on the last |
 
-Wave 5 and wave 6 can run concurrently — they touch disjoint file sets.
+Waves 5 and 6 can run concurrently — they touch disjoint file sets.
 
 ---
 
@@ -100,23 +97,22 @@ Dispatch a *separate* subagent that did not write the code. Give it the task blo
 
 Fresh context is the entire point. Do not ask the implementing subagent to review itself.
 
-### Tier 3 — the human, at three hard gates
+### Tier 3 — the human, at two hard gates
 
 Neither the orchestrator nor any subagent can *see* whether the design works. Visual quality is not agent-verifiable, and a plan that pretends otherwise just launders a guess into a checkmark.
 
-**Halt and wait for the user after Tasks 1, 2 and 12.**
+**Halt and wait for the user after Tasks 1 and 2.**
 
 | Gate | Why it is here |
 |---|---|
 | **After Task 1** | Every view inherits these tokens. A wrong type rhythm or a contrast miss costs 14 tasks to unwind |
 | **After Task 2** | The primitives set the proportions and weight all ten views adopt. Same compounding |
-| **After Task 12** | Kitchen Display is read at a glance from across a room; "is the status obvious?" cannot be asserted from a diff |
 
 At each gate, give the user a short list of exactly what to look at and stop. Do not dispatch the next wave until they respond.
 
 Everything else proceeds on Tier 1 + Tier 2 alone.
 
-**Delivery seam:** Tasks 1–11 deliver everything the user asked for and can ship alone. Tasks 12–15 are the consistency debt that carries the redesign into the staff views.
+**Scope note:** the staff console token conversion was cut (see the Deferred section). The plan now runs Tasks 0–11 plus Task 15. The staff views keep their current appearance.
 
 **Subagent briefing.** Each subagent sees only what you pass it. Always include: the task block verbatim, the Global Constraints section, the spec sections its task cites, and the `Produces` blocks of every task it consumes.
 
@@ -138,7 +134,7 @@ Everything else proceeds on Tier 1 + Tier 2 alone.
 | `src/components/ui/UiBadge.vue` | Order-status colors | 2 |
 | `src/components/ui/UiSkeleton.vue` | Loading placeholder | 2 |
 | `src/components/ui/UiEmptyState.vue` | Empty list messaging | 2 |
-| `src/store/useUiStore.js` | Theme mode + toast queue | 3 |
+| `src/store/useUiStore.js` | Toast queue | 3 |
 | `src/lib/useToast.js` | Toast ergonomics | 3 |
 | `src/components/ui/UiToast.vue` | Toast viewport | 3 |
 | `src/components/ui/UiModal.vue` | Dialog + mobile bottom sheet | 3 |
@@ -164,8 +160,8 @@ Everything else proceeds on Tier 1 + Tier 2 alone.
 | `src/components/storefront/OrderTracker.vue` | Authenticated order list | 10 |
 | `src/components/storefront/DeliveryMap.vue` | Lazy Leaflet | 10 |
 | `src/components/CustomerView.vue` | **Deleted** | 11 |
-| 7 staff views | Token conversion | 12–14 |
 | `src/components/Analytics.vue` | Chart tokens | 15 |
+| `src/components/MenuManagement.vue` | Image + description fields only | 6 |
 
 ---
 
@@ -722,7 +718,7 @@ git commit -m "feat(ui): static primitives — icon, button, card, chip, badge, 
 
 ---
 
-## Task 3: Interactive primitives, theme store, and toasts
+## Task 3: Interactive primitives and toasts
 
 Implements the second half of spec T2. This task retires the mechanism behind all 16 `alert()` calls.
 
@@ -816,7 +812,6 @@ On a throwaway scratchpad page (not committed):
 3. With the modal open, confirm the page behind does not scroll.
 4. At 375px width with `sheet`, confirm it anchors to the bottom.
 5. Fire one of each toast tone; confirm info and success auto-dismiss at ~5s and error persists.
-6. Toggle theme and confirm modal, toasts, and fields all adapt.
 
 - [ ] **Step 8: Confirm no palette literals**
 
@@ -830,7 +825,7 @@ Expected: no output.
 
 ```bash
 git add src/components/ui/ src/lib/useToast.js src/store/useUiStore.js
-git commit -m "feat(ui): modal, toasts, fields, and theme store"
+git commit -m "feat(ui): modal, toasts, and fields"
 ```
 
 ---
@@ -1495,10 +1490,22 @@ curl -s -X POST localhost:3000/api/menu-items \
 ```
 Expected: HTTP 400, `{"error":"imageUrl must use http or https"}`.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 12: Add the image and description fields to `MenuManagement.vue`**
+
+Without this there is no way to populate menu imagery, and every storefront card falls back to the gradient treatment permanently. This is the one piece rescued from the deferred staff console conversion.
+
+Add to the create/edit form:
+- An `imageUrl` field (`type="url"`, optional) with a live preview thumbnail that falls back to the gradient-and-initial treatment on load error.
+- A `description` field (textarea, `maxlength="280"`, optional) with a live character counter.
+
+**Scope discipline:** touch only these two new fields. Do not convert this file's other 22 palette literals, its `alert()`, or its `confirm()` — that work is deliberately deferred and doing it here would smuggle a cut task back in. Match the file's existing utility-class style for the new fields so they do not look transplanted.
+
+Confirm a manager still sees `cost` in this form after the Step 4 gating change.
+
+- [ ] **Step 13: Commit**
 
 ```bash
-git add server/
+git add server/ src/components/MenuManagement.vue
 git commit -m "feat(api): menu imagery, optional auth, and staff-only cost"
 ```
 
@@ -1872,89 +1879,29 @@ git commit -m "refactor(storefront): retire CustomerView in favor of storefront 
 
 ---
 
-## Tasks 12–14: Staff console token conversion
+## Deferred: staff console token conversion
 
-Implements spec T11–T13. **Dispatch all three in parallel — they share no files.** Task 15 can run alongside them.
+**Cut from this plan on 2026-09-23.** Originally Tasks 12–14, covering `POSTerminal`, `KitchenDisplay`, `Inventory`, `MenuManagement`, `LoyaltyManagement`, `UserManagement`, `DriverView` and `Dashboard`.
 
-Each task follows the identical procedure below. The only differences are the file list and the counts.
+**Why it was cut:** the work was originally justified by dark mode — semantic tokens were a prerequisite for a second palette. With dark mode out of scope, the remaining case is visual consistency, which did not justify the largest mechanical item in the project.
 
-### Shared conversion mapping
+**What that leaves in the codebase**, stated plainly so nobody discovers it by surprise:
 
-| Literal | Replacement |
-|---|---|
-| `bg-white` | `bg-surface` |
-| `bg-gray-50`, `bg-gray-100` | `bg-surface-sunken` |
-| `text-gray-900`, `text-gray-800` | `text-ink` |
-| `text-gray-600`, `text-gray-500` | `text-ink-muted` |
-| `text-gray-400` | `text-ink-subtle` |
-| `border`, `border-gray-200`, `border-gray-300` | `border border-line` |
-| `bg-blue-600`, `bg-blue-500` | `bg-primary` |
-| `hover:bg-blue-700` | `hover:bg-primary-hover` |
-| `text-blue-600` | `text-primary` |
-| `text-white` on a primary surface | `text-primary-ink` |
-| `bg-green-*`, `text-green-*` | `bg-positive` / `text-positive` |
-| `bg-amber-*`, `bg-yellow-*`, `text-amber-*` | `bg-warning` / `text-warning` |
-| `bg-red-*`, `text-red-*` | `bg-danger` / `text-danger` |
-| `rounded`, `rounded-lg`, `rounded-xl` | `rounded-md` / `rounded-lg` / `rounded-xl` from the token scale |
+- **~170 hardcoded palette literals remain** across seven staff views. They render `#2563eb` where the brand primary is `#3A8FBA`, plus off-brand greys and greens.
+- **9 `alert()` calls and 4 `confirm()` calls remain** — 5 in `POSTerminal`, 1 each in `KitchenDisplay`, `Inventory`, `LoyaltyManagement`, `MenuManagement`; confirms in `Inventory:84`, `LoyaltyManagement:99`, `MenuManagement:126`, `UserManagement:88`. The storefront has none.
+- **The staff console will visibly differ from the storefront.** Same app, two visual languages. This is the accepted cost.
 
-For tinted backgrounds (badges, status pills), use `color-mix(in srgb, var(--<token>) 14%, transparent)` rather than a lighter palette step — one value instead of two, and it tracks the token if it changes.
+**One piece survived the cut:** `MenuManagement.vue` still needs the image-URL and description fields from Task 6, or menu imagery can never be populated and every storefront card falls back to the gradient treatment forever. That moved into Task 6 as its own step rather than dying with this section.
 
-### Shared procedure
-
-- [ ] **Step 1: Re-read the file.** Line numbers in the spec were measured on 2026-09-23 and have shifted.
-- [ ] **Step 2: Replace ad-hoc controls with primitives.** Every `<button class="px-4 py-2 rounded…">` becomes `UiButton`. Every card wrapper becomes `UiCard`. Every labeled input becomes `UiField`. Every status pill becomes `UiBadge`. Every filter pill becomes `UiChip`.
-- [ ] **Step 3: Apply the conversion mapping** to whatever literals remain.
-- [ ] **Step 4: Replace `alert()` with `useToast()`** — `toast.error` for failures, `toast.success` for confirmations.
-- [ ] **Step 5: Replace `confirm()` with a `UiModal`** holding a `danger` variant confirm button. Preserve the existing message text.
-- [ ] **Step 6: Add loading and empty states** — `UiSkeleton` while `state.loading`, `UiEmptyState` for empty lists.
-- [ ] **Step 7: Verify zero literals remain.**
-
-```bash
-grep -rnE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}" <file>
-```
-Expected: no output. **This is the completion gate — every survivor is a view still rendering `#2563eb` where the brand is `#3A8FBA`.**
-
-- [ ] **Step 8: Verify zero blocking dialogs remain.**
-
-```bash
-grep -nE "alert\(|confirm\(" <file>
-```
-Expected: no output.
-
-- [ ] **Step 9: Verify visually** — at compact density, at 375px / 768px / 1440px.
-- [ ] **Step 10: Commit** with message `refactor(<view>): convert to design tokens`.
-
-### Task 12 — POS Terminal and Kitchen Display
-
-**Files:** `src/components/POSTerminal.vue` (26 literals, 5 `alert()`), `src/components/KitchenDisplay.vue` (25 literals, 1 `alert()`)
-
-**TIER 3 HUMAN GATE.** When this task completes, halt. Kitchen Display is read at a glance, from a distance, under pressure — whether a status is instantly obvious cannot be asserted from a diff. Ask the user to review it before treating the re-skin wave as done.
-
-**Additional requirement for `KitchenDisplay`:** verify each order-status color holds AA contrast against `--surface-raised`, and that a card's status is readable across a room at a glance. Status colors map to `UiBadge` tones: pending → `warning`, preparing → `primary`, ready → `positive`, completed → `neutral`, cancelled → `danger`.
-
-### Task 13 — Inventory, Menu Management, Loyalty
-
-**Files:** `src/components/Inventory.vue` (19 literals, 1 `alert()`, 1 `confirm()`), `src/components/MenuManagement.vue` (22, 1, 1), `src/components/LoyaltyManagement.vue` (11, 1, 1)
-
-**Additional requirement for `MenuManagement`:** add the Task 6 fields to the create/edit form — an `imageUrl` `UiField` (type `url`, with a live preview thumbnail that falls back to the gradient treatment on load error) and a `description` `UiField` (textarea, `maxlength="280"`, with a live character counter). Both are optional. Confirm the manager still sees `cost` here.
-
-**Additional requirement for `LoyaltyManagement`:** this is the one place `--secondary` (brown) is correct — use it for tier accents. Never use it for primary actions.
-
-### Task 14 — User Management, Driver Portal, Dashboard
-
-**Files:** `src/components/UserManagement.vue` (36 literals, 1 `confirm()`), `src/components/DriverView.vue` (31 literals), `src/components/Dashboard.vue` (already tokenized)
-
-**Additional requirement for `UserManagement`:** its `confirm()` guards irreversible access removal. The `UiModal` replacement must name the user in the body and use a `danger` confirm button, never a default-focused one.
-
-**Additional requirement for `DriverView`:** GPS broadcast state must be unmistakable — use `positive` for broadcasting and `ink-muted` for idle, with text, not color alone, carrying the meaning.
-
-**`Dashboard.vue` is alignment only:** it already uses scoped CSS with tokens. Convert its remaining hex literals to the Task 1 token names. Do not restructure it.
+**If this is revived**, the conversion mapping and procedure are preserved in Task 15, which applies them to `Analytics.vue`. The per-view counts are in spec §3.
 
 ---
 
 ## Task 15: Analytics chart tokens
 
-Implements spec T14 (spec §8). Dispatch in parallel with Tasks 12–14.
+Implements spec T14 (spec §8). Depends on Task 2 only — dispatch any time after it lands.
+
+`Analytics.vue` is kept despite the staff console conversion being deferred, because it has an actual defect rather than just inconsistency: it hardcodes five chart.js color arrays that match neither the brand nor each other, while `--chart-1` through `--chart-5` sit unused in `theme.css`.
 
 **Files:**
 - Modify: `src/components/Analytics.vue`
@@ -1985,7 +1932,28 @@ Line `borderColor` uses `chartPalette()[0]`; its fill uses `withAlpha(chartPalet
 
 Axis ticks, grid lines and legend labels are currently Chart.js defaults, which are a different grey from `--ink-muted`. Set ticks and legend to `--ink-muted` and the grid to `--line`, read the same way as the palette.
 
-- [ ] **Step 3: Convert the remaining 17 literals** using the Tasks 12–14 mapping table.
+- [ ] **Step 3: Convert the remaining 17 literals**
+
+| Literal | Replacement |
+|---|---|
+| `bg-white` | `bg-surface` |
+| `bg-gray-50`, `bg-gray-100` | `bg-surface-sunken` |
+| `text-gray-900`, `text-gray-800` | `text-ink` |
+| `text-gray-600`, `text-gray-500` | `text-ink-muted` |
+| `text-gray-400` | `text-ink-subtle` |
+| `border`, `border-gray-200`, `border-gray-300` | `border border-line` |
+| `bg-blue-600`, `bg-blue-500` | `bg-primary` |
+| `hover:bg-blue-700` | `hover:bg-primary-hover` |
+| `text-blue-600` | `text-primary` |
+| `text-white` on a primary surface | `text-primary-ink` |
+| `bg-green-*`, `text-green-*` | `bg-positive` / `text-positive` |
+| `bg-amber-*`, `bg-yellow-*`, `text-amber-*` | `bg-warning` / `text-warning` |
+| `bg-red-*`, `text-red-*` | `bg-danger` / `text-danger` |
+| `rounded`, `rounded-lg`, `rounded-xl` | `rounded-md` / `rounded-lg` / `rounded-xl` from the token scale |
+
+For tinted backgrounds, use `color-mix(in srgb, var(--<token>) 14%, transparent)` rather than a lighter palette step.
+
+This table is the reference for the deferred staff console conversion too — if that work is revived, it starts here.
 
 - [ ] **Step 4: Verify the charts are on-brand**
 
@@ -2013,19 +1981,26 @@ Run after every task has landed. This is spec §10.
 
 - [ ] **Build:** `npm run build` exits 0.
 - [ ] **Tests:** `npm test` passes.
-- [ ] **App-wide literal sweep:**
+- [ ] **In-scope literal sweep.** Scoped deliberately — the staff console conversion was cut, so a bare `src/` sweep would fail by design and stop being a useful signal:
 
 ```bash
-grep -rnE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}" src/
+grep -rnE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}"   src/styles/ src/components/ui/ src/components/shell/ src/components/storefront/   src/store/ src/App.vue src/components/Analytics.vue
 ```
-Expected: no output. Anything here is a view still rendering off-brand colors.
+Expected: no output.
 
-- [ ] **Blocking-dialog sweep:**
+- [ ] **Out-of-scope baseline, to confirm the cut did not drift.** The seven deferred staff views should be *unchanged*, not partially converted:
 
 ```bash
-grep -rnE "alert\(|confirm\(" src/
+grep -rcE "(bg|text|border|ring|from|to|via)-(gray|blue|red|green|amber|yellow|slate|zinc|orange|purple|teal|indigo)-[0-9]{2,3}"   src/components/POSTerminal.vue src/components/KitchenDisplay.vue src/components/Inventory.vue   src/components/MenuManagement.vue src/components/LoyaltyManagement.vue   src/components/UserManagement.vue src/components/DriverView.vue
 ```
-Expected: no output. Was 16 `alert()` + 4 `confirm()`.
+Expected: 26, 25, 19, 22, 11, 36, 31 — totalling 170. A *lower* number means a subagent converted a deferred file; a higher one means new literals were introduced. Both are defects.
+
+- [ ] **In-scope blocking-dialog sweep:**
+
+```bash
+grep -rnE "alert\(|confirm\(" src/components/storefront/ src/components/ui/ src/App.vue
+```
+Expected: no output. The storefront was the source of 7 of the original 16 `alert()` calls; all die with `CustomerView`. The 9 alerts and 4 confirms in the deferred staff views remain by design.
 
 - [ ] **Per-role smoke pass:** guest, customer, cashier, kitchen, driver, manager, admin — each lands on the right shell and default view, and every nav item renders without error.
 - [ ] **Three breakpoints:** 375px, 768px, 1440px — no horizontal scroll, no clipped controls.

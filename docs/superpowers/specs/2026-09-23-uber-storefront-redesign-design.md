@@ -2,7 +2,7 @@
 
 **Status:** Approved design, ready for implementation planning
 **Date:** 2026-09-23
-**Scope:** Full-app visual redesign (10 views) + guest menu browsing and cart before login
+**Scope:** Visual redesign of the storefront, shells and shared primitives + guest menu browsing and cart before login. The staff console conversion is deferred (§8).
 
 ---
 
@@ -57,7 +57,9 @@ Every statement here was checked against the repo on 2026-09-23. Subagents shoul
 | `LoyaltyManagement.vue` | 11 |
 | `Dashboard.vue`, `LoginView.vue` | 0 (already tokenized) |
 
-**These literals are the look-and-feel problem, not a tidiness problem.** `bg-blue-600` is `#2563eb`; the brand primary is `#3A8FBA`. The app currently ships two different blues, two different greys, and two different greens depending on which file you are looking at. Converting them to semantic tokens is what makes the redesign actually land in the staff views rather than stopping at the storefront. It is also the largest mechanical work item in the project.
+**These literals are the look-and-feel problem, not a tidiness problem.** `bg-blue-600` is `#2563eb`; the brand primary is `#3A8FBA`. The app ships two different blues, two greys and two greens depending on which file you are in.
+
+**79 of the 266 die with `CustomerView.vue`** (T10) and 17 are fixed in `Analytics.vue` (T14). The remaining 170 across seven staff views are **deliberately left in place** — see §8. Do not convert them opportunistically; a lower count in those files is a defect, not an improvement.
 
 **File sizes.** `CustomerView.vue` 950 lines, `POSTerminal.vue` 585, `App.vue` 517, `Dashboard.vue` 425, `DriverView.vue` 327.
 
@@ -311,14 +313,22 @@ Four items, all additive.
 
 ---
 
-## 8. Staff console re-skin
+## 8. Staff console re-skin — DEFERRED
 
-All nine non-tokenized views convert their 266 hardcoded palette literals to semantic token classes. `Dashboard.vue` and `LoginView.vue` are the reference pattern — they already use tokens.
+**Cut on 2026-09-23.** Originally T11–T13, covering `POSTerminal`, `KitchenDisplay`, `Inventory`, `MenuManagement`, `LoyaltyManagement`, `UserManagement`, `DriverView` and `Dashboard`.
 
-- **`KitchenDisplay.vue`** needs its order-status colors mapped to the semantic tokens and checked for AA contrast — it is read at a glance, from a distance, in a bright room.
-- **`Analytics.vue`** reads its chart palette from `--chart-1..5` via `getComputedStyle` rather than hardcoding hex arrays, so the charts match the brand instead of Tailwind defaults. Hardcoded arrays at lines 143–178 are removed.
-- **The 4 `confirm()` calls** become `UiModal` confirmations. These guard destructive deletes — including "Remove user, they lose access immediately" — and a native confirm is easy to fat-finger past.
-- **The 16 `alert()` calls** become toasts.
+The work was justified by dark mode, which is itself now a non-goal (§2). With only visual consistency left as the case, it did not justify being the largest mechanical item in the project.
+
+**Accepted consequences:**
+
+- ~170 palette literals stay in seven staff views, rendering `#2563eb` where the brand primary is `#3A8FBA`.
+- 9 `alert()` and 4 `confirm()` calls stay. The storefront's 7 alerts die with `CustomerView`.
+- The staff console and the storefront will look like two different applications. This is the cost of the cut, not an oversight.
+
+**Two pieces survived**, because each has a defect independent of consistency:
+
+- **`Analytics.vue`** (T14) hardcodes five chart.js color arrays matching neither brand nor each other, while `--chart-1`–`--chart-5` sit unused. It reads its palette from tokens via `getComputedStyle` and the hardcoded arrays at lines 143–178 are removed.
+- **`MenuManagement.vue`** gains only the image-URL and description fields from §7. Without them menu imagery can never be populated and every storefront card falls back to the gradient treatment permanently. Its other 22 literals, 1 alert and 1 confirm are explicitly left alone.
 
 ---
 
@@ -331,8 +341,8 @@ Tasks are ordered by dependency. Each is sized for a single subagent. `Depends o
 | Owner | Literals | Which |
 |---|---|---|
 | T6–T10 | 79 | `CustomerView.vue` — not converted, *replaced* by the new storefront components and then deleted |
-| T11–T13 | 170 | the seven staff views |
 | T14 | 17 | `Analytics.vue` |
+| *deferred* | 170 | the seven staff views (§8) |
 | **Total** | **266** | |
 
 ### T1 — Token layer and typography
@@ -408,15 +418,6 @@ Tasks are ordered by dependency. Each is sized for a single subagent. `Depends o
 **Do:** Delete the old 950-line component once T6–T9 cover its behavior. Update `viewMap`.
 **Done when:** no behavior from the original is lost except the deliberately-cut lookup form.
 
-### T11–T13 — Staff console re-skin *(the long pole)*
-
-**Depends on:** T2
-Split by view so subagents can run in parallel; each converts hardcoded literals to tokens, replaces `alert()`/`confirm()`, and verifies the result at compact density.
-
-- **T11:** `POSTerminal` (26 literals, 5 alerts), `KitchenDisplay` (25, 1 alert, status-color contrast check)
-- **T12:** `Inventory` (19, 1 alert, 1 confirm), `MenuManagement` (22, 1 alert, 1 confirm, **plus the new image/description fields**), `LoyaltyManagement` (11, 1 alert, 1 confirm)
-- **T13:** `UserManagement` (36, 1 confirm), `DriverView` (31), `Dashboard` (already tokenized — align only)
-
 ### T14 — Analytics
 
 **Depends on:** T2
@@ -425,7 +426,7 @@ Split by view so subagents can run in parallel; each converts hardcoded literals
 
 ### Natural delivery split
 
-**T1–T10 deliver everything the user asked for** and can ship independently. **T11–T14 are the consistency debt that carries the redesign into the staff views.** If the storefront needs to be seen working before committing to the full sweep, that is the seam.
+**T1–T10 deliver everything the user asked for.** T14 (Analytics) is independent of them and can land any time after T2. The staff console conversion is deferred per §8.
 
 ---
 
@@ -437,7 +438,7 @@ Everything else verifies as:
 
 1. `npm run build` clean.
 2. **Per-role smoke pass** — guest, customer, cashier, kitchen, driver, manager, admin. Each lands on the right shell and default view, and every nav item renders.
-3. **Visual pass**, every view.
+3. **Visual pass** across the storefront, both shells and `Analytics`. The seven deferred staff views are expected to look unchanged.
 4. **Three breakpoints** — 375px, 768px, 1440px.
 5. **The guest path end to end** — browse → customize → cart → redirect → return → checkout → order placed → tracked.
 6. **Network check** — a logged-out visitor triggers no failed authenticated requests, and the initial bundle contains no Leaflet.
@@ -449,8 +450,7 @@ Everything else verifies as:
 
 | Risk | Mitigation |
 |---|---|
-| 266 literal conversions is a large mechanical surface with real regression potential | Split across T11–T13 by view; one subagent per group; per-view visual check |
 | Cart loss across the Auth0 redirect is the feature's single point of failure | The only automated-test coverage in the project (T4) targets exactly this |
-| A palette literal survives and a staff view keeps shipping the wrong blue | Grep for the palette-literal pattern as a completion gate on T11–T14 |
+| A subagent "helpfully" converts a deferred staff view, reviving cut scope | Baseline literal counts per deferred file are asserted in Final Verification — a *lower* count is a defect |
 | `CustomerView` deletion (T10) drops behavior nobody noticed | T10 gated behind T6–T9; diff old component against new surface before deleting |
 | Storefront regresses first paint | Leaflet dynamic import verified in T9; guest loads menu only (T6) |
