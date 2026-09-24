@@ -1,7 +1,9 @@
+<script>
+let fieldCounter = 0;
+</script>
+
 <script setup>
 import { computed } from 'vue';
-
-let fieldCounter = 0;
 
 const props = defineProps({
   label:    { type: String,  required: true },
