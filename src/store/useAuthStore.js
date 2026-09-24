@@ -3,7 +3,7 @@ import { useAuth0 } from '@auth0/auth0-vue';
 
 // Role → default view when user logs in
 const ROLE_DEFAULT_VIEW = {
-  customer: 'customer',
+  customer: 'storefront',
   driver:   'driver',
   cashier:  'kitchen',
   kitchen:  'kitchen',
@@ -13,7 +13,7 @@ const ROLE_DEFAULT_VIEW = {
 
 // Role → allowed view IDs
 const ROLE_VIEWS = {
-  customer: ['customer'],
+  customer: ['storefront'],
   driver:   ['driver'],
   cashier:  ['pos', 'kitchen'],
   kitchen:  ['kitchen'],

@@ -13,7 +13,6 @@ import Inventory from './components/Inventory.vue';
 import MenuManagement from './components/MenuManagement.vue';
 import Analytics from './components/Analytics.vue';
 import LoyaltyManagement from './components/LoyaltyManagement.vue';
-import CustomerView from './components/CustomerView.vue';
 import DriverView from './components/DriverView.vue';
 import UserManagement from './components/UserManagement.vue';
 const auth0    = useAuth0();
@@ -53,7 +52,6 @@ const VIEW_MAP = {
   menu:      MenuManagement,
   loyalty:   LoyaltyManagement,
   analytics: Analytics,
-  customer:  CustomerView,
   driver:    DriverView,
   users:     UserManagement,
 };
