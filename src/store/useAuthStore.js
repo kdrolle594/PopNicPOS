@@ -41,6 +41,7 @@ export function useAuthStore() {
   const isAuthenticated = computed(() => auth0().isAuthenticated.value);
   const isLoading       = computed(() => auth0().isLoading.value);
   const auth0User       = computed(() => auth0().user.value);
+  const isGuest         = computed(() => !isAuthenticated.value);
 
   async function getToken() {
     return auth0().getAccessTokenSilently();
@@ -76,6 +77,7 @@ export function useAuthStore() {
   }
 
   function defaultView() {
+    if (!state.role) return 'storefront';
     return ROLE_DEFAULT_VIEW[state.role] || 'dashboard';
   }
 
@@ -86,6 +88,7 @@ export function useAuthStore() {
   storeInstance = {
     state,
     isAuthenticated,
+    isGuest,
     isLoading,
     auth0User,
     getToken,

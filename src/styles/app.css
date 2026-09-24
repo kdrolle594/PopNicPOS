@@ -1,0 +1,41 @@
+/* ─── APP LOADING SPLASH ──────────────────────────── */
+.app-loading {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-sunken);
+  gap: var(--space-4);
+  color: var(--ink-muted);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: var(--text-sm);
+}
+
+.app-loading__spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: app-spin 0.75s linear infinite;
+}
+
+@keyframes app-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loading__spinner { animation: none; }
+}
+
+/* ─── VIEW TRANSITIONS ────────────────────────────── */
+.view-enter-active { transition: opacity 0.22s var(--ease), transform 0.22s var(--ease); }
+.view-leave-active { transition: opacity 0.17s var(--ease), transform 0.17s var(--ease); }
+.view-enter-from   { opacity: 0; transform: translateY(12px); }
+.view-leave-to     { opacity: 0; transform: translateY(-6px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .view-enter-active, .view-leave-active {
+    transition: opacity var(--motion-fast) var(--ease);
+  }
+  .view-enter-from, .view-leave-to { transform: none; }
+}
