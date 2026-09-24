@@ -137,6 +137,26 @@ async function run() {
       }
     }
 
+    // 6. Add image_url + description to menu_item
+    for (const [column, ddl] of [
+      ['image_url',   'ALTER TABLE menu_item ADD COLUMN image_url VARCHAR(512) NULL'],
+      ['description', 'ALTER TABLE menu_item ADD COLUMN description VARCHAR(280) NULL'],
+    ]) {
+      const [existing] = await conn.query(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME   = 'menu_item'
+           AND COLUMN_NAME  = ?`,
+        [column]
+      );
+      if (existing.length === 0) {
+        await conn.query(ddl);
+        console.log(`✔  Added ${column} to menu_item`);
+      } else {
+        console.log(`✔  menu_item.${column} already exists — skipping`);
+      }
+    }
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);

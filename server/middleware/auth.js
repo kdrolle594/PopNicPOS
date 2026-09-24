@@ -240,6 +240,18 @@ export async function loadUser(req, res, next) {
   }
 }
 
+// Resolves req.user when a token is supplied, and stays silent when one is not.
+// jwtCheck cannot do this alone — it 401s on a missing header.
+// An invalid token still 401s: silently downgrading a bad token to guest
+// would mask real auth bugs.
+export function optionalAuth(req, res, next) {
+  if (!req.headers.authorization) return next();
+  jwtCheck(req, res, (err) => {
+    if (err) return next(err);
+    loadUser(req, res, next);
+  });
+}
+
 // ── Role guard factory ─────────────────────────────────────────────────────────
 export function requireRole(...roles) {
   return (req, res, next) => {

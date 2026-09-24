@@ -3,7 +3,7 @@ import pool from '../db.js';
 
 const router = Router();
 
-function validateMenuPayload({ name, price, cost, inventoryItems }) {
+export function validateMenuPayload({ name, price, cost, inventoryItems, imageUrl, description }) {
   if (!name || typeof name !== 'string' || !name.trim()) return 'name is required';
   if (!isFinite(Number(price)) || Number(price) < 0) return 'price must be a non-negative number';
   if (cost != null && (!isFinite(Number(cost)) || Number(cost) < 0)) return 'cost must be a non-negative number';
@@ -15,28 +15,54 @@ function validateMenuPayload({ name, price, cost, inventoryItems }) {
       }
     }
   }
+  if (imageUrl != null && imageUrl !== '') {
+    if (typeof imageUrl !== 'string' || imageUrl.length > 512) {
+      return 'imageUrl must be a string of at most 512 characters';
+    }
+    let parsed;
+    try {
+      parsed = new URL(imageUrl);
+    } catch {
+      return 'imageUrl must be a valid URL';
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return 'imageUrl must use http or https';
+    }
+  }
+  if (description != null && (typeof description !== 'string' || description.length > 280)) {
+    return 'description must be a string of at most 280 characters';
+  }
   return null;
 }
 
+// Exported for tests. Pure — no db, no req/res.
+export function serializeMenuItem(item, links, isPrivileged) {
+  return {
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    price: Number(item.price),
+    // Margin data is staff-only — the storefront is a public surface.
+    ...(isPrivileged ? { cost: Number(item.cost) } : {}),
+    available: Boolean(item.available),
+    isCombo: Boolean(item.is_combo),
+    pointsValue: item.points_value,
+    imageUrl: item.image_url || null,
+    description: item.description || null,
+    inventoryItems: links
+      .filter((l) => l.menu_item_id === item.id)
+      .map((l) => ({ id: l.inventory_item_id, quantity: Number(l.quantity_used) })),
+  };
+}
+
 // GET /api/menu-items — list all with inventory recipe links
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const [items] = await pool.query('SELECT * FROM menu_item ORDER BY id');
     const [links] = await pool.query('SELECT * FROM menu_item_inventory');
 
-    const result = items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      price: Number(item.price),
-      cost: Number(item.cost),
-      available: Boolean(item.available),
-      isCombo: Boolean(item.is_combo),
-      pointsValue: item.points_value,
-      inventoryItems: links
-        .filter((l) => l.menu_item_id === item.id)
-        .map((l) => ({ id: l.inventory_item_id, quantity: Number(l.quantity_used) })),
-    }));
+    const isPrivileged = !!req.user && ['manager', 'admin'].includes(req.user.role);
+    const result = items.map((item) => serializeMenuItem(item, links, isPrivileged));
 
     res.json(result);
   } catch (err) {
@@ -50,7 +76,7 @@ router.post('/', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { name, category, price, cost, available, isCombo, pointsValue, inventoryItems } = req.body;
+    const { name, category, price, cost, available, isCombo, pointsValue, inventoryItems, imageUrl, description } = req.body;
 
     const invalid = validateMenuPayload(req.body);
     if (invalid) {
@@ -59,9 +85,9 @@ router.post('/', async (req, res) => {
     }
 
     const [result] = await conn.query(
-      `INSERT INTO menu_item (name, category, price, cost, available, is_combo, points_value)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, category, price, cost, available ?? true, isCombo ?? false, pointsValue ?? 0]
+      `INSERT INTO menu_item (name, category, price, cost, available, is_combo, points_value, image_url, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, category, price, cost, available ?? true, isCombo ?? false, pointsValue ?? 0, imageUrl || null, description || null]
     );
     const menuId = result.insertId;
 
@@ -84,6 +110,8 @@ router.post('/', async (req, res) => {
       available: available ?? true,
       isCombo: isCombo ?? false,
       pointsValue: pointsValue ?? 0,
+      imageUrl: imageUrl || null,
+      description: description || null,
       inventoryItems: inventoryItems || [],
     });
   } catch (err) {
@@ -100,7 +128,7 @@ router.put('/:id', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { name, category, price, cost, available, isCombo, pointsValue, inventoryItems } = req.body;
+    const { name, category, price, cost, available, isCombo, pointsValue, inventoryItems, imageUrl, description } = req.body;
 
     const invalid = validateMenuPayload(req.body);
     if (invalid) {
@@ -109,9 +137,9 @@ router.put('/:id', async (req, res) => {
     }
 
     await conn.query(
-      `UPDATE menu_item SET name=?, category=?, price=?, cost=?, available=?, is_combo=?, points_value=?
+      `UPDATE menu_item SET name=?, category=?, price=?, cost=?, available=?, is_combo=?, points_value=?, image_url=?, description=?
        WHERE id=?`,
-      [name, category, price, cost, available, isCombo, pointsValue, req.params.id]
+      [name, category, price, cost, available, isCombo, pointsValue, imageUrl || null, description || null, req.params.id]
     );
 
     // Replace inventory links
@@ -135,6 +163,8 @@ router.put('/:id', async (req, res) => {
       available: Boolean(available),
       isCombo: Boolean(isCombo),
       pointsValue: pointsValue ?? 0,
+      imageUrl: imageUrl || null,
+      description: description || null,
       inventoryItems: inventoryItems || [],
     });
   } catch (err) {

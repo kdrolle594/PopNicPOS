@@ -9,7 +9,7 @@ import customerRoutes from './routes/customers.js';
 import authRoutes from './routes/auth.js';
 import realtimeRoutes from './routes/realtime.js';
 import usersRoutes from './routes/users.js';
-import { jwtCheck, loadUser, requireRole } from './middleware/auth.js';
+import { jwtCheck, loadUser, requireRole, optionalAuth } from './middleware/auth.js';
 
 const app = express();
 
@@ -38,7 +38,9 @@ app.use('/api/realtime', realtimeRoutes);
 
 const menuWriteAuth = [jwtCheck, loadUser, requireRole('manager', 'admin')];
 app.use('/api/menu-items', (req, res, next) => {
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    return optionalAuth(req, res, next);
+  }
   let i = 0;
   const run = (err) => { if (err) return next(err); if (i < menuWriteAuth.length) menuWriteAuth[i++](req, res, run); else next(); };
   run();

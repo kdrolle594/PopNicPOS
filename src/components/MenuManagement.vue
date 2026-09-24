@@ -16,7 +16,11 @@ const form = reactive({
   isCombo: false,
   pointsValue: 0,
   inventoryItems: [],
+  imageUrl: '',
+  description: '',
 });
+
+const imagePreviewFailed = ref(false);
 
 const stats = computed(() => {
   const avgMargin =
@@ -46,6 +50,9 @@ function resetForm() {
   form.isCombo = false;
   form.pointsValue = 0;
   form.inventoryItems = [];
+  form.imageUrl = '';
+  form.description = '';
+  imagePreviewFailed.value = false;
 }
 
 function openCreate() {
@@ -64,6 +71,9 @@ function openEdit(item) {
   form.isCombo = Boolean(item.isCombo);
   form.pointsValue = item.pointsValue || 0;
   form.inventoryItems = Array.isArray(item.inventoryItems) ? item.inventoryItems.map((inv) => ({ ...inv })) : [];
+  form.imageUrl = item.imageUrl || '';
+  form.description = item.description || '';
+  imagePreviewFailed.value = false;
   modalOpen.value = true;
 }
 
@@ -92,6 +102,14 @@ function setInventoryQuantity(inventoryId, quantity) {
   );
 }
 
+function onImageUrlChange() {
+  imagePreviewFailed.value = false;
+}
+
+function onImagePreviewError() {
+  imagePreviewFailed.value = true;
+}
+
 async function saveItem() {
   if (!form.name || !form.category || !form.price || !form.cost) {
     alert('Please fill all required fields.');
@@ -106,6 +124,8 @@ async function saveItem() {
     available: Boolean(form.available),
     isCombo: Boolean(form.isCombo),
     pointsValue: Number(form.pointsValue) || 0,
+    imageUrl: form.imageUrl.trim(),
+    description: form.description.trim(),
     inventoryItems: form.inventoryItems
       .map((inv) => ({ id: inv.id, quantity: Math.max(0.01, Number(inv.quantity) || 0.01) }))
       .filter((inv) => Boolean(inv.id)),
@@ -217,6 +237,47 @@ function toggleAvailability(item) {
         <div>
           <label class="block text-sm font-medium mb-1">Points Value</label>
           <input v-model.number="form.pointsValue" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="0" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Image URL</label>
+          <div class="flex items-center gap-3">
+            <div class="w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-line flex items-center justify-center">
+              <img
+                v-if="form.imageUrl && !imagePreviewFailed"
+                :src="form.imageUrl"
+                alt=""
+                class="w-full h-full object-cover"
+                @error="onImagePreviewError"
+              />
+              <div
+                v-else
+                class="w-full h-full flex items-center justify-center font-semibold"
+                :style="{ backgroundImage: 'linear-gradient(135deg, var(--primary), var(--secondary))', color: 'var(--primary-ink)' }"
+              >
+                {{ (form.name || '?').charAt(0).toUpperCase() }}
+              </div>
+            </div>
+            <input
+              v-model="form.imageUrl"
+              type="url"
+              class="flex-1 border border-line rounded-md px-3 py-2 bg-surface text-ink"
+              placeholder="https://example.com/image.jpg"
+              @input="onImageUrlChange"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Description</label>
+          <textarea
+            v-model="form.description"
+            maxlength="280"
+            rows="3"
+            class="w-full border border-line rounded-md px-3 py-2 bg-surface text-ink"
+            placeholder="Optional description shown to customers"
+          ></textarea>
+          <p class="text-xs text-ink-subtle mt-1">{{ form.description.length }}/280</p>
         </div>
 
         <div class="border rounded-lg p-3 space-y-3">
