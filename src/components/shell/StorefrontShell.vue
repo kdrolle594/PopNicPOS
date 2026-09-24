@@ -7,6 +7,9 @@ import UiButton from '../ui/UiButton.vue';
 import UiIcon from '../ui/UiIcon.vue';
 import UiToast from '../ui/UiToast.vue';
 import CartPanel from '../storefront/CartPanel.vue';
+import MenuBrowser from '../storefront/MenuBrowser.vue';
+import CheckoutPanel from '../storefront/CheckoutPanel.vue';
+import OrderTracker from '../storefront/OrderTracker.vue';
 
 const auth = useAuthStore();
 const cart = useCartStore();
@@ -68,7 +71,9 @@ const userInitials = computed(() => {
 
     <!-- Active storefront view -->
     <main class="sf-main">
-      <slot />
+      <MenuBrowser v-if="storefrontView.value === 'browse'" />
+      <CheckoutPanel v-else-if="storefrontView.value === 'checkout'" />
+      <OrderTracker v-else-if="storefrontView.value === 'orders'" />
     </main>
 
     <!-- Mobile bottom bar (≤ 639px) -->
