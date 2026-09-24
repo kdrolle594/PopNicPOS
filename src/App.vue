@@ -2,6 +2,7 @@
 import { computed, ref, watch, provide } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useAuthStore } from './store/useAuthStore';
+import { usePosStore } from './store/usePosStore.js';
 import StorefrontShell from './components/shell/StorefrontShell.vue';
 import ConsoleShell from './components/shell/ConsoleShell.vue';
 import Dashboard from './components/Dashboard.vue';
@@ -14,8 +15,9 @@ import LoyaltyManagement from './components/LoyaltyManagement.vue';
 import CustomerView from './components/CustomerView.vue';
 import DriverView from './components/DriverView.vue';
 import UserManagement from './components/UserManagement.vue';
-const auth0 = useAuth0();
-const auth  = useAuthStore();
+const auth0    = useAuth0();
+const auth     = useAuthStore();
+const posStore = usePosStore();
 const currentView = ref('storefront');
 
 // storefrontView is owned here so Task 8 can flip it from the auth watcher.
@@ -67,6 +69,8 @@ watch(
     if (authenticated && !auth.state.role) {
       await auth.fetchRole();
       currentView.value = auth.defaultView();
+      // Load staff-only data (inventory, orders, customers) after role resolves.
+      posStore.loadAuthenticated();
     }
   },
   { immediate: true }

@@ -52,9 +52,39 @@ export function usePosStore() {
     loading: true,
   });
 
-  // Fetch all collections from the API on first access. Some endpoints are
-  // role-gated (inventory + customers are manager+), so use allSettled and
-  // tolerate 403s — the view that would need the data is role-gated anyway.
+  // ── Public (guest) loader ──────────────────────────────────────────────────
+  // Fetches only the menu — no auth required. Called by MenuBrowser on mount.
+
+  async function loadPublic() {
+    state.loading = true;
+    try {
+      state.menuItems = await api('/menu-items');
+    } catch (err) {
+      console.error('Failed to load menu:', err);
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  // ── Authenticated loader ───────────────────────────────────────────────────
+  // Fetches inventory, orders and customers after staff sign-in.
+  // Role-gated endpoints are tolerated via allSettled.
+
+  async function loadAuthenticated() {
+    const results = await Promise.allSettled([
+      api('/inventory-items'),
+      api('/orders'),
+      api('/customers'),
+    ]);
+    const [inventoryItems, orders, loyaltyCustomers] = results;
+    if (inventoryItems.status   === 'fulfilled') state.inventoryItems   = inventoryItems.value;
+    if (orders.status           === 'fulfilled') state.orders           = orders.value;
+    if (loyaltyCustomers.status === 'fulfilled') state.loyaltyCustomers = loyaltyCustomers.value;
+  }
+
+  // ── Full loader (kept for existing staff callers) ─────────────────────────
+  // Combines loadPublic + loadAuthenticated. Does NOT self-invoke at construction.
+
   async function loadAll() {
     const results = await Promise.allSettled([
       api('/menu-items'),
@@ -63,13 +93,12 @@ export function usePosStore() {
       api('/customers'),
     ]);
     const [menuItems, inventoryItems, orders, loyaltyCustomers] = results;
-    if (menuItems.status === 'fulfilled')        state.menuItems = menuItems.value;
-    if (inventoryItems.status === 'fulfilled')   state.inventoryItems = inventoryItems.value;
-    if (orders.status === 'fulfilled')           state.orders = orders.value;
+    if (menuItems.status        === 'fulfilled') state.menuItems        = menuItems.value;
+    if (inventoryItems.status   === 'fulfilled') state.inventoryItems   = inventoryItems.value;
+    if (orders.status           === 'fulfilled') state.orders           = orders.value;
     if (loyaltyCustomers.status === 'fulfilled') state.loyaltyCustomers = loyaltyCustomers.value;
     state.loading = false;
   }
-  loadAll();
 
   // ── Menu Items ─────────────────────────────────────────────────────────────
 
@@ -232,6 +261,8 @@ export function usePosStore() {
   storeInstance = {
     state,
     getTier,
+    loadPublic,
+    loadAuthenticated,
     loadAll,
     addOrder,
     updateOrderStatus,
