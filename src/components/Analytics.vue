@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Bar, Doughnut, Line } from 'vue-chartjs';
 import {
   ArcElement,
@@ -19,6 +19,31 @@ ChartJS.register(ArcElement, BarElement, CategoryScale, Legend, LineElement, Lin
 const { state } = usePosStore();
 const timeRange = ref('month');
 
+// ── Design-token helpers ────────────────────────────────────────
+function chartPalette() {
+  const styles = getComputedStyle(document.documentElement);
+  return [1, 2, 3, 4, 5].map((n) => styles.getPropertyValue(`--chart-${n}`).trim());
+}
+
+function withAlpha(hex, alpha) {
+  if (!hex || !hex.startsWith('#')) return 'transparent';
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+// Read tokens once on mount — not inside reactive computed to avoid DOM reads on every cycle.
+const palette = ref([]);
+const inkMuted = ref('');
+const lineToken = ref('');
+
+onMounted(() => {
+  const styles = getComputedStyle(document.documentElement);
+  palette.value = chartPalette();
+  inkMuted.value = styles.getPropertyValue('--ink-muted').trim();
+  lineToken.value = styles.getPropertyValue('--line').trim();
+});
+
+// ── Data computeds ───────────────────────────────────────────────
 const filteredOrders = computed(() => {
   const now = new Date();
   const cutoff = new Date();
@@ -134,19 +159,23 @@ const paymentMethodData = computed(() => {
   }));
 });
 
-const lineChartData = computed(() => ({
-  labels: revenueTrend.value.map((row) => row.label),
-  datasets: [
-    {
-      label: 'Revenue',
-      data: revenueTrend.value.map((row) => row.revenue),
-      borderColor: '#2563eb',
-      backgroundColor: 'rgba(37, 99, 235, 0.2)',
-      tension: 0.25,
-      fill: true,
-    },
-  ],
-}));
+// ── Chart data — consume palette in order ───────────────────────
+const lineChartData = computed(() => {
+  const color = palette.value[0] || '';
+  return {
+    labels: revenueTrend.value.map((row) => row.label),
+    datasets: [
+      {
+        label: 'Revenue',
+        data: revenueTrend.value.map((row) => row.revenue),
+        borderColor: color,
+        backgroundColor: withAlpha(color, 0.2),
+        tension: 0.25,
+        fill: true,
+      },
+    ],
+  };
+});
 
 const barChartData = computed(() => ({
   labels: topSellingItems.value.map((item) => item.name),
@@ -154,7 +183,7 @@ const barChartData = computed(() => ({
     {
       label: 'Revenue',
       data: topSellingItems.value.map((item) => Number(item.revenue.toFixed(2))),
-      backgroundColor: '#16a34a',
+      backgroundColor: palette.value[0] || undefined,
       borderRadius: 6,
     },
   ],
@@ -165,7 +194,7 @@ const categoryChartData = computed(() => ({
   datasets: [
     {
       data: categorySales.value.map((row) => row.revenue),
-      backgroundColor: ['#2563eb', '#7c3aed', '#16a34a', '#ea580c', '#dc2626', '#0891b2', '#ca8a04'],
+      backgroundColor: categorySales.value.map((_, i) => palette.value[i % Math.max(palette.value.length, 1)] || undefined),
     },
   ],
 }));
@@ -175,50 +204,67 @@ const paymentChartData = computed(() => ({
   datasets: [
     {
       data: paymentMethodData.value.map((row) => row.count),
-      backgroundColor: ['#2563eb', '#0d9488', '#f59e0b', '#a855f7'],
+      backgroundColor: paymentMethodData.value.map((_, i) => palette.value[i % Math.max(palette.value.length, 1)] || undefined),
     },
   ],
 }));
 
-const sharedOptions = {
+// ── Chart options — chrome from tokens ──────────────────────────
+const sharedOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
     legend: {
       display: true,
       position: 'bottom',
+      labels: { color: inkMuted.value || undefined },
     },
   },
-};
+}));
 
-const lineOptions = {
-  ...sharedOptions,
+const lineOptions = computed(() => ({
+  ...sharedOptions.value,
   scales: {
     y: {
       beginAtZero: true,
+      ticks: { color: inkMuted.value || undefined },
+      grid: { color: lineToken.value || undefined },
+    },
+    x: {
+      ticks: { color: inkMuted.value || undefined },
+      grid: { color: lineToken.value || undefined },
     },
   },
-};
+}));
 
-const barOptions = {
-  ...sharedOptions,
+const barOptions = computed(() => ({
+  ...sharedOptions.value,
   plugins: {
-    ...sharedOptions.plugins,
-    legend: {
-      display: false,
+    ...sharedOptions.value.plugins,
+    legend: { display: false },
+  },
+  scales: {
+    y: {
+      beginAtZero: true,
+      ticks: { color: inkMuted.value || undefined },
+      grid: { color: lineToken.value || undefined },
+    },
+    x: {
+      ticks: { color: inkMuted.value || undefined },
+      grid: { color: lineToken.value || undefined },
     },
   },
-};
+}));
 </script>
 
 <template>
   <div class="p-6 space-y-6">
     <div class="flex items-center justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold">Analytics & Reports</h1>
-        <p class="text-gray-500">Track business performance</p>
+        <h1 class="text-3xl font-bold">Analytics &amp; Reports</h1>
+        <p class="text-ink-muted">Track business performance</p>
       </div>
-      <select v-model="timeRange" class="border rounded px-3 py-2 bg-white">
+      <select v-model="timeRange" class="border border-line rounded-md px-3 py-2 bg-surface">
         <option value="week">Last 7 Days</option>
         <option value="month">Last 30 Days</option>
         <option value="year">Last Year</option>
@@ -226,63 +272,66 @@ const barOptions = {
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Total Revenue</p><p class="text-2xl font-bold">${{ stats.totalRevenue.toFixed(2) }}</p><p class="text-xs text-gray-500">{{ stats.totalOrders }} orders</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Profit</p><p class="text-2xl font-bold text-blue-600">${{ stats.profit.toFixed(2) }}</p><p class="text-xs text-gray-500">{{ stats.profitMargin.toFixed(1) }}% margin</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Avg Order Value</p><p class="text-2xl font-bold">${{ stats.avgOrderValue.toFixed(2) }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Completion Rate</p><p class="text-2xl font-bold">{{ stats.totalOrders ? ((stats.completedOrders / stats.totalOrders) * 100).toFixed(1) : 0 }}%</p></div>
+      <div class="bg-surface rounded-xl border border-line p-4"><p class="text-sm text-ink-muted">Total Revenue</p><p class="text-2xl font-bold">${{ stats.totalRevenue.toFixed(2) }}</p><p class="text-xs text-ink-muted">{{ stats.totalOrders }} orders</p></div>
+      <div class="bg-surface rounded-xl border border-line p-4"><p class="text-sm text-ink-muted">Profit</p><p class="text-2xl font-bold text-primary">${{ stats.profit.toFixed(2) }}</p><p class="text-xs text-ink-muted">{{ stats.profitMargin.toFixed(1) }}% margin</p></div>
+      <div class="bg-surface rounded-xl border border-line p-4"><p class="text-sm text-ink-muted">Avg Order Value</p><p class="text-2xl font-bold">${{ stats.avgOrderValue.toFixed(2) }}</p></div>
+      <div class="bg-surface rounded-xl border border-line p-4"><p class="text-sm text-ink-muted">Completion Rate</p><p class="text-2xl font-bold">{{ stats.totalOrders ? ((stats.completedOrders / stats.totalOrders) * 100).toFixed(1) : 0 }}%</p></div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="bg-white rounded-xl border p-4">
+      <div class="bg-surface rounded-xl border border-line p-4">
         <h2 class="font-semibold mb-4">Revenue Trend</h2>
         <div v-if="revenueTrend.length" class="h-72">
           <Line :data="lineChartData" :options="lineOptions" />
         </div>
-        <p v-else class="text-gray-500 text-sm">No trend data.</p>
+        <p v-else class="text-ink-muted text-sm">No trend data.</p>
       </div>
 
-      <div class="bg-white rounded-xl border p-4">
+      <div class="bg-surface rounded-xl border border-line p-4">
         <h2 class="font-semibold mb-4">Sales by Category</h2>
         <div v-if="categorySales.length" class="h-72">
           <Doughnut :data="categoryChartData" :options="sharedOptions" />
         </div>
-        <p v-else class="text-gray-500 text-sm">No category data.</p>
+        <p v-else class="text-ink-muted text-sm">No category data.</p>
       </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="bg-white rounded-xl border p-4">
+      <div class="bg-surface rounded-xl border border-line p-4">
         <h2 class="font-semibold mb-4">Payment Methods</h2>
         <div v-if="paymentMethodData.length" class="h-72">
           <Doughnut :data="paymentChartData" :options="sharedOptions" />
         </div>
-        <p v-else class="text-gray-500 text-sm">No payment data.</p>
+        <p v-else class="text-ink-muted text-sm">No payment data.</p>
       </div>
 
-      <div class="bg-white rounded-xl border p-4">
+      <div class="bg-surface rounded-xl border border-line p-4">
         <h2 class="font-semibold mb-4">Top Sellers Revenue</h2>
         <div v-if="topSellingItems.length" class="h-72">
           <Bar :data="barChartData" :options="barOptions" />
         </div>
-        <p v-else class="text-gray-500 text-sm">No sales data available.</p>
+        <p v-else class="text-ink-muted text-sm">No sales data available.</p>
       </div>
     </div>
 
-    <div class="bg-white rounded-xl border p-4">
+    <div class="bg-surface rounded-xl border border-line p-4">
       <h2 class="font-semibold mb-4">Top 10 Best Sellers</h2>
       <div v-if="topSellingItems.length" class="space-y-2">
-        <div v-for="(item, index) in topSellingItems" :key="item.name + index" class="flex items-center justify-between border-b pb-2">
+        <div v-for="(item, index) in topSellingItems" :key="item.name + index" class="flex items-center justify-between border-b border-line pb-2">
           <div class="flex items-center gap-3">
-            <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center">{{ index + 1 }}</span>
+            <span
+              class="w-6 h-6 rounded-full text-primary text-xs flex items-center justify-center"
+              style="background-color: color-mix(in srgb, var(--primary) 14%, transparent)"
+            >{{ index + 1 }}</span>
             <div>
               <p class="font-medium">{{ item.name }}</p>
-              <p class="text-xs text-gray-500">{{ item.quantity }} sold</p>
+              <p class="text-xs text-ink-muted">{{ item.quantity }} sold</p>
             </div>
           </div>
-          <p class="font-semibold text-green-700">${{ item.revenue.toFixed(2) }}</p>
+          <p class="font-semibold text-positive">${{ item.revenue.toFixed(2) }}</p>
         </div>
       </div>
-      <p v-else class="text-gray-500 text-sm">No sales data available.</p>
+      <p v-else class="text-ink-muted text-sm">No sales data available.</p>
     </div>
   </div>
 </template>
