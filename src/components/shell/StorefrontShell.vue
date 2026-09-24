@@ -1,5 +1,6 @@
 <script setup>
 import { computed, inject } from 'vue';
+
 import { useAuthStore } from '../../store/useAuthStore.js';
 import { useCartStore } from '../../store/useCartStore.js';
 import UiBadge from '../ui/UiBadge.vue';
@@ -15,6 +16,10 @@ const auth = useAuthStore();
 const cart = useCartStore();
 
 const storefrontView = inject('storefrontView');
+// Injected refs are auto-unwrapped in <script setup> templates, so .value === undefined.
+// Use a computed for reads and a function for template writes.
+const view = computed(() => storefrontView.value);
+function go(v) { storefrontView.value = v; }
 
 // Task 5 complete — wire itemCount directly from useCartStore
 const cartCount = computed(() => cart.itemCount.value);
@@ -38,7 +43,7 @@ const userInitials = computed(() => {
           class="sf-cart-btn"
           type="button"
           aria-label="Open cart"
-          @click="storefrontView.value = 'cart'"
+          @click="go('cart')"
         >
           <UiIcon name="cart" :size="22" />
           <UiBadge v-if="cartCount > 0" tone="primary" class="sf-cart-badge">{{ cartCount }}</UiBadge>
@@ -71,9 +76,9 @@ const userInitials = computed(() => {
 
     <!-- Active storefront view -->
     <main class="sf-main">
-      <MenuBrowser v-if="storefrontView.value === 'browse'" />
-      <CheckoutPanel v-else-if="storefrontView.value === 'checkout'" />
-      <OrderTracker v-else-if="storefrontView.value === 'orders'" />
+      <MenuBrowser v-if="view === 'browse'" />
+      <CheckoutPanel v-else-if="view === 'checkout'" />
+      <OrderTracker v-else-if="view === 'orders'" />
     </main>
 
     <!-- Mobile bottom bar (≤ 639px) -->
@@ -81,8 +86,8 @@ const userInitials = computed(() => {
       <button
         class="sf-bottom-btn"
         type="button"
-        :class="{ 'sf-bottom-btn--active': storefrontView.value === 'browse' }"
-        @click="storefrontView.value = 'browse'"
+        :class="{ 'sf-bottom-btn--active': view === 'browse' }"
+        @click="go('browse')"
         aria-label="Browse menu"
       >
         <UiIcon name="menu" :size="20" />
@@ -92,8 +97,8 @@ const userInitials = computed(() => {
       <button
         class="sf-bottom-btn"
         type="button"
-        :class="{ 'sf-bottom-btn--active': storefrontView.value === 'cart' }"
-        @click="storefrontView.value = 'cart'"
+        :class="{ 'sf-bottom-btn--active': view === 'cart' }"
+        @click="go('cart')"
         aria-label="Cart"
       >
         <span class="sf-bottom-btn__icon-wrap">
@@ -106,8 +111,8 @@ const userInitials = computed(() => {
       <button
         class="sf-bottom-btn"
         type="button"
-        :class="{ 'sf-bottom-btn--active': storefrontView.value === 'orders' }"
-        @click="storefrontView.value = 'orders'"
+        :class="{ 'sf-bottom-btn--active': view === 'orders' }"
+        @click="go('orders')"
         aria-label="My orders"
       >
         <UiIcon name="clock" :size="20" />
@@ -128,7 +133,7 @@ const userInitials = computed(() => {
         variant="primary"
         size="sm"
         class="sf-cart-bar__btn"
-        @click="storefrontView.value = 'cart'"
+        @click="go('cart')"
       >View cart</UiButton>
     </div>
 

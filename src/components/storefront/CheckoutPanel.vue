@@ -12,6 +12,7 @@ import UiIcon from '../ui/UiIcon.vue';
 const emit = defineEmits(['placed', 'back']);
 
 const storefrontView = inject('storefrontView');
+const view = computed(() => storefrontView.value);
 const cart  = useCartStore();
 const auth  = useAuthStore();
 const pos   = usePosStore();
@@ -205,7 +206,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="storefrontView.value === 'checkout'" class="co-wrap">
+  <div v-if="view === 'checkout'" class="co-wrap">
     <div class="co-panel">
 
       <!-- ── Header ──────────────────────────────────────── -->

@@ -10,6 +10,7 @@ import UiButton from '../ui/UiButton.vue';
 import DeliveryMap from './DeliveryMap.vue';
 
 const storefrontView = inject('storefrontView');
+function go(v) { storefrontView.value = v; }
 const auth = useAuthStore();
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -222,7 +223,7 @@ onUnmounted(() => {
       description="Your order history will appear here once you place an order."
     >
       <template #action>
-        <UiButton variant="primary" @click="storefrontView.value = 'browse'">Browse the menu</UiButton>
+        <UiButton variant="primary" @click="go('browse')">Browse the menu</UiButton>
       </template>
     </UiEmptyState>
 

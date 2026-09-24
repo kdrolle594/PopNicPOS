@@ -1,5 +1,5 @@
 <script setup>
-import { inject, ref, watch, nextTick } from 'vue';
+import { inject, ref, computed, watch, nextTick } from 'vue';
 import { useCartStore } from '../../store/useCartStore.js';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import UiButton from '../ui/UiButton.vue';
@@ -9,6 +9,7 @@ import UiEmptyState from '../ui/UiEmptyState.vue';
 const cart = useCartStore();
 const auth = useAuthStore();
 const storefrontView = inject('storefrontView');
+const view = computed(() => storefrontView.value);
 
 const panelRef = ref(null);
 
@@ -48,7 +49,7 @@ function lineKey(line) {
   <Teleport to="body">
     <Transition name="cart-panel">
       <div
-        v-if="storefrontView.value === 'cart'"
+        v-if="view === 'cart'"
         class="cart-overlay"
         @click.self="close"
       >
