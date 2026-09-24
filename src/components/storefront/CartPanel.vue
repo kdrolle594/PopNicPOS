@@ -1,5 +1,5 @@
 <script setup>
-import { inject } from 'vue';
+import { inject, ref, watch, nextTick } from 'vue';
 import { useCartStore } from '../../store/useCartStore.js';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import UiButton from '../ui/UiButton.vue';
@@ -9,6 +9,18 @@ import UiEmptyState from '../ui/UiEmptyState.vue';
 const cart = useCartStore();
 const auth = useAuthStore();
 const storefrontView = inject('storefrontView');
+
+const panelRef = ref(null);
+
+watch(
+  () => storefrontView.value,
+  async (view) => {
+    if (view === 'cart') {
+      await nextTick();
+      panelRef.value?.focus();
+    }
+  }
+);
 
 function close() {
   storefrontView.value = 'browse';
@@ -38,10 +50,10 @@ function lineKey(line) {
       <div
         v-if="storefrontView.value === 'cart'"
         class="cart-overlay"
-        aria-hidden="true"
         @click.self="close"
       >
         <div
+          ref="panelRef"
           class="cart-panel"
           role="dialog"
           aria-modal="true"
