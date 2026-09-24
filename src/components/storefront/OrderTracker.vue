@@ -18,6 +18,8 @@ const loading = ref(true);
 const orders = ref([]);
 const mapOrderId = ref(null);
 const mapOpen = ref(false);
+const mapCustomerLat = ref(null);
+const mapCustomerLng = ref(null);
 
 let unsubscribeOrders = null;
 
@@ -132,14 +134,18 @@ const sortedOrders = computed(() =>
 
 // ── Track delivery map ─────────────────────────────────────────────────────────
 
-function openMap(orderId) {
-  mapOrderId.value = orderId;
+function openMap(order) {
+  mapOrderId.value = order.id;
+  mapCustomerLat.value = order.deliveryLat ? Number(order.deliveryLat) : null;
+  mapCustomerLng.value = order.deliveryLng ? Number(order.deliveryLng) : null;
   mapOpen.value = true;
 }
 
 function closeMap() {
   mapOpen.value = false;
   mapOrderId.value = null;
+  mapCustomerLat.value = null;
+  mapCustomerLng.value = null;
 }
 
 // ── Fetch orders ─────────────────────────────────────────────────────────────
@@ -169,10 +175,11 @@ async function connectRealtime() {
       const order = orders.value.find((o) => o.id === orderId);
       if (order) order.status = status;
     },
-    orderDriverAssigned: ({ orderId, driverName, driverPhone }) => {
+    orderDriverAssigned: ({ orderId, driverId, driverName, driverPhone }) => {
       const order = orders.value.find((o) => o.id === orderId);
       if (order) {
-        order.driverName = driverName;
+        order.driverId    = driverId;
+        order.driverName  = driverName;
         order.driverPhone = driverPhone;
       }
     },
@@ -285,7 +292,7 @@ onUnmounted(() => {
           v-if="order.status === 'out_for_delivery' && order.driverId"
           class="order-tracker__map-cta"
         >
-          <UiButton variant="secondary" size="sm" @click="openMap(order.id)">
+          <UiButton variant="secondary" size="sm" @click="openMap(order)">
             Track delivery
           </UiButton>
         </div>
@@ -297,6 +304,8 @@ onUnmounted(() => {
       v-if="mapOrderId !== null"
       :order-id="mapOrderId"
       :open="mapOpen"
+      :customer-lat="mapCustomerLat"
+      :customer-lng="mapCustomerLng"
       @close="closeMap"
     />
   </section>

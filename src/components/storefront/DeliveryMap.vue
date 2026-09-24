@@ -6,6 +6,8 @@ import UiModal from '../ui/UiModal.vue';
 const props = defineProps({
   orderId:     { type: Number, required: true },
   open:        { type: Boolean, required: true },
+  customerLat: { type: Number, default: null },
+  customerLng: { type: Number, default: null },
 });
 
 const emit = defineEmits(['close']);
@@ -14,6 +16,7 @@ const emit = defineEmits(['close']);
 let L = null;
 let leafletMap = null;
 let driverMarker = null;
+let customerMarker = null;
 
 // ── Refs ──────────────────────────────────────────────────────────────────────
 const mapContainer = ref(null);
@@ -39,6 +42,25 @@ function initMap() {
 
   if (driverLocation.value) {
     placeDriverMarker(driverLocation.value.lat, driverLocation.value.lng);
+  }
+  if (props.customerLat != null && props.customerLng != null) {
+    placeCustomerMarker(props.customerLat, props.customerLng);
+  }
+}
+
+function placeCustomerMarker(lat, lng) {
+  if (!leafletMap || !L) return;
+  const homeIcon = L.divIcon({
+    className: '',
+    html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))" aria-hidden="true">&#x1F3E0;</div>',
+    iconAnchor: [13, 26],
+  });
+  if (!customerMarker) {
+    customerMarker = L.marker([lat, lng], { icon: homeIcon })
+      .addTo(leafletMap)
+      .bindPopup('Your delivery address');
+  } else {
+    customerMarker.setLatLng([lat, lng]);
   }
 }
 
@@ -75,6 +97,7 @@ async function connectDelivery(orderId) {
 
 function disconnectDelivery() {
   if (unsubscribeDelivery) { unsubscribeDelivery(); unsubscribeDelivery = null; }
+  if (customerMarker) { customerMarker = null; }
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
