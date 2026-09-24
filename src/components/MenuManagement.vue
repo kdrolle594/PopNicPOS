@@ -277,7 +277,7 @@ function toggleAvailability(item) {
             class="w-full border border-line rounded-md px-3 py-2 bg-surface text-ink"
             placeholder="Optional description shown to customers"
           ></textarea>
-          <p class="text-xs text-ink-subtle mt-1">{{ form.description.length }}/280</p>
+          <p class="text-xs text-ink-muted mt-1">{{ form.description.length }}/280</p>
         </div>
 
         <div class="border rounded-lg p-3 space-y-3">
