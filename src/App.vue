@@ -69,8 +69,8 @@ watch(
     if (authenticated && !auth.state.role) {
       await auth.fetchRole();
       currentView.value = auth.defaultView();
-      // Load staff-only data (inventory, orders, customers) after role resolves.
-      posStore.loadAuthenticated();
+      // Load full POS data (menu items + inventory/orders/customers) after role resolves.
+      posStore.loadAll();
       // Auth-hop: if the user initiated checkout as a guest, land them on checkout.
       if (cart.consumePendingCheckout()) {
         storefrontView.value = 'checkout';
