@@ -22,7 +22,7 @@ const props = defineProps({
 <style scoped>
 .ui-skeleton {
   display: block;
-  background: var(--surface-sunken);
+  background: var(--skel-base);
   position: relative;
   overflow: hidden;
 }

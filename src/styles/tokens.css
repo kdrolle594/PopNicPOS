@@ -63,6 +63,7 @@
   --danger:         #D4183D;
   --chart-1: #3A8FBA; --chart-2: #8B6B4A; --chart-3: #0E9E7A;
   --chart-4: #B45309; --chart-5: #6B4FA8;
+  --skel-base: #D5E3EC; /* visible skeleton base; lighter than --line but darker than --surface-sunken */
 
   color-scheme: light;
 }
