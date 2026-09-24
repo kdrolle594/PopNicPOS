@@ -3,6 +3,7 @@ import { computed, ref, watch, provide } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useAuthStore } from './store/useAuthStore';
 import { usePosStore } from './store/usePosStore.js';
+import { useCartStore } from './store/useCartStore.js';
 import StorefrontShell from './components/shell/StorefrontShell.vue';
 import ConsoleShell from './components/shell/ConsoleShell.vue';
 import Dashboard from './components/Dashboard.vue';
@@ -18,6 +19,7 @@ import UserManagement from './components/UserManagement.vue';
 const auth0    = useAuth0();
 const auth     = useAuthStore();
 const posStore = usePosStore();
+const cart     = useCartStore();
 const currentView = ref('storefront');
 
 // storefrontView is owned here so Task 8 can flip it from the auth watcher.
@@ -71,6 +73,22 @@ watch(
       currentView.value = auth.defaultView();
       // Load staff-only data (inventory, orders, customers) after role resolves.
       posStore.loadAuthenticated();
+      // Auth-hop: if the user initiated checkout as a guest, land them on checkout.
+      if (cart.consumePendingCheckout()) {
+        storefrontView.value = 'checkout';
+      }
+    }
+  },
+  { immediate: true }
+);
+
+// Abandoned login: Auth0 finished loading but user is not authenticated.
+// Clear any stale pendingCheckout flag while leaving the cart intact.
+watch(
+  () => auth0.isLoading.value,
+  (loading) => {
+    if (!loading && !auth0.isAuthenticated.value) {
+      cart.consumePendingCheckout(); // discard result — only clears the flag
     }
   },
   { immediate: true }

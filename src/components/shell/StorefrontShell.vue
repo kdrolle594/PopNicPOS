@@ -6,6 +6,7 @@ import UiBadge from '../ui/UiBadge.vue';
 import UiButton from '../ui/UiButton.vue';
 import UiIcon from '../ui/UiIcon.vue';
 import UiToast from '../ui/UiToast.vue';
+import CartPanel from '../storefront/CartPanel.vue';
 
 const auth = useAuthStore();
 const cart = useCartStore();
@@ -14,6 +15,7 @@ const storefrontView = inject('storefrontView');
 
 // Task 5 complete — wire itemCount directly from useCartStore
 const cartCount = computed(() => cart.itemCount.value);
+const cartTotal = computed(() => '$' + Number(cart.total.value).toFixed(2));
 
 const userInitials = computed(() => {
   const name = auth.state.appUser?.name || '';
@@ -33,7 +35,7 @@ const userInitials = computed(() => {
           class="sf-cart-btn"
           type="button"
           aria-label="Open cart"
-          @click="storefrontView.value = 'checkout'"
+          @click="storefrontView.value = 'cart'"
         >
           <UiIcon name="cart" :size="22" />
           <UiBadge v-if="cartCount > 0" tone="primary" class="sf-cart-badge">{{ cartCount }}</UiBadge>
@@ -85,8 +87,8 @@ const userInitials = computed(() => {
       <button
         class="sf-bottom-btn"
         type="button"
-        :class="{ 'sf-bottom-btn--active': storefrontView.value === 'checkout' }"
-        @click="storefrontView.value = 'checkout'"
+        :class="{ 'sf-bottom-btn--active': storefrontView.value === 'cart' }"
+        @click="storefrontView.value = 'cart'"
         aria-label="Cart"
       >
         <span class="sf-bottom-btn__icon-wrap">
@@ -108,7 +110,27 @@ const userInitials = computed(() => {
       </button>
     </nav>
 
+    <!-- Mobile pinned cart bar (< 1024px, shown when cart has items) -->
+    <div
+      v-if="cartCount > 0"
+      class="sf-cart-bar"
+      aria-label="Cart summary"
+    >
+      <span class="sf-cart-bar__count">{{ cartCount }} item{{ cartCount === 1 ? '' : 's' }}</span>
+      <span class="sf-cart-bar__sep" aria-hidden="true">·</span>
+      <span class="sf-cart-bar__total">{{ cartTotal }}</span>
+      <UiButton
+        variant="primary"
+        size="sm"
+        class="sf-cart-bar__btn"
+        @click="storefrontView.value = 'cart'"
+      >View cart</UiButton>
+    </div>
+
     <UiToast />
+
+    <!-- Cart panel (teleports to body) -->
+    <CartPanel />
   </div>
 </template>
 
@@ -309,5 +331,50 @@ const userInitials = computed(() => {
 
 .sf-bottom-btn__label {
   line-height: 1;
+}
+
+/* ─── MOBILE PINNED CART BAR ──────────────────────── */
+.sf-cart-bar {
+  display: none;
+  position: sticky;
+  bottom: 0;
+  z-index: 41;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface-raised);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, .08);
+}
+
+@media (max-width: 1023px) {
+  .sf-cart-bar {
+    display: flex;
+  }
+
+  /* Extra bottom padding so the cart bar does not obscure the last card */
+  .sf-main:has(~ .sf-cart-bar) {
+    padding-bottom: 56px;
+  }
+}
+
+.sf-cart-bar__count {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.sf-cart-bar__sep {
+  color: var(--ink-subtle);
+  font-size: var(--text-sm);
+}
+
+.sf-cart-bar__total {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.sf-cart-bar__btn {
+  margin-left: auto;
 }
 </style>
