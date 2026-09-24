@@ -53,6 +53,7 @@
   --primary:        #3A8FBA;
   --primary-hover:  #2E6F96;
   --primary-ink:    #FFFFFF;
+  --danger-ink:     #FFFFFF;
   --primary-text:   #2E6F96; /* text-on-light use of primary; 5.48:1 on white */
   --secondary:      #8B6B4A;
   --positive:       #0E9E7A;

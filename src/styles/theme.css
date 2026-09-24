@@ -9,6 +9,7 @@
   --color-primary:        var(--primary);
   --color-primary-hover:  var(--primary-hover);
   --color-primary-ink:    var(--primary-ink);
+  --color-danger-ink:     var(--danger-ink);
   --color-primary-text:   var(--primary-text);
   --color-secondary:      var(--secondary);
   --color-positive:       var(--positive);

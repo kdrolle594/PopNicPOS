@@ -59,7 +59,7 @@ defineProps({
 .ui-btn--ghost { background: transparent; color: var(--ink-muted); }
 .ui-btn--ghost:hover:not(:disabled) { background: var(--surface-sunken); color: var(--ink); }
 
-.ui-btn--danger { background: var(--danger); color: #FFFFFF; }
+.ui-btn--danger { background: var(--danger); color: var(--danger-ink); }
 .ui-btn--danger:hover:not(:disabled) { filter: brightness(.92); }
 
 .ui-btn__spinner {
@@ -72,4 +72,8 @@ defineProps({
 }
 
 @keyframes ui-btn-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn__spinner { animation: none; }
+}
 </style>

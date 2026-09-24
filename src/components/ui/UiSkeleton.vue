@@ -5,10 +5,6 @@ const props = defineProps({
   radius: { type: String, default: undefined },
   circle: Boolean,
 });
-
-const computedRadius = props.circle
-  ? '50%'
-  : (props.radius ?? 'var(--radius-sm)');
 </script>
 
 <template>
