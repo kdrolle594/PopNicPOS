@@ -157,6 +157,62 @@ async function run() {
       }
     }
 
+    // 7. Option groups, choices and menu item attachments.
+    // FK columns must match the existing id column types exactly, so read them.
+    async function idColumnType(table) {
+      const [[col]] = await conn.query(
+        `SELECT COLUMN_TYPE AS type FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'id'`,
+        [table]
+      );
+      if (!col) throw new Error(`${table}.id not found`);
+      return col.type;
+    }
+    const menuIdType = await idColumnType('menu_item');
+    const inventoryIdType = await idColumnType('inventory_item');
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS option_group (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(80) NOT NULL,
+        min_select TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        max_select TINYINT UNSIGNED NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        UNIQUE KEY uq_option_group_name (name)
+      ) ENGINE=InnoDB
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS option_choice (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        name VARCHAR(80) NOT NULL,
+        price_delta DECIMAL(8,2) NOT NULL DEFAULT 0,
+        available BOOLEAN NOT NULL DEFAULT TRUE,
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        inventory_item_id ${inventoryIdType} NULL,
+        inventory_qty DECIMAL(10,3) NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        UNIQUE KEY uq_option_choice_group_name (group_id, name),
+        CONSTRAINT fk_option_choice_group FOREIGN KEY (group_id)
+          REFERENCES option_group(id) ON DELETE CASCADE,
+        CONSTRAINT fk_option_choice_inventory FOREIGN KEY (inventory_item_id)
+          REFERENCES inventory_item(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS menu_item_option_group (
+        menu_item_id ${menuIdType} NOT NULL,
+        group_id INT NOT NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (menu_item_id, group_id),
+        CONSTRAINT fk_mog_menu_item FOREIGN KEY (menu_item_id)
+          REFERENCES menu_item(id) ON DELETE CASCADE,
+        CONSTRAINT fk_mog_group FOREIGN KEY (group_id)
+          REFERENCES option_group(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB
+    `);
+    console.log('✔  Option tables ready');
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);
