@@ -1,4 +1,5 @@
 import pool from './db.js';
+import { seedOptions } from './seedOptions.js';
 
 // ── Default data (matches the original localStorage seed) ──────────────────────
 
@@ -198,6 +199,9 @@ async function seed() {
     }
   }
   console.log(`✔  Inserted ${linkCount} recipe links`);
+
+  // 4) Option groups, specialty pizzas and attachments
+  await seedOptions(pool);
 
   // ── Seed admin account (links on first Auth0 login by email) ─────────────────
   const [existingAdmin] = await pool.query(
