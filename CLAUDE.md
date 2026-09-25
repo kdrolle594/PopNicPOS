@@ -23,6 +23,9 @@ npm run seed
 # Run idempotent schema migrations (see server/migrate.js)
 node server/migrate.js
 
+# Run tests (vitest, tests/)
+npm test
+
 # Build for production
 npm run build
 
@@ -35,25 +38,33 @@ npm run deploy
 **Split deployment**: frontend (GitHub Pages) + backend (Vercel serverless functions).
 
 - Frontend: Vue 3 + Vite + Tailwind CSS — `src/`
-- Backend: Express 5 + MySQL2 — `server/` (Vercel entry point re-exports the app from `api/index.js`; `vercel.json` rewrites all paths to it)
+- Backend: Express 5 + MySQL2 — `server/` (Vercel entry point re-exports the app from `api/index.js`; `vercel.json` rewrites `/api/*` to it. It also builds the Vite app into `dist/` and serves it with an SPA fallback, which gives preview deployments a working frontend)
 - Realtime: Ably (server publishes via `server/realtime.js`; browser clients get scoped tokens from `GET /api/realtime/token`)
 - Database: Aiven-hosted MySQL (connection via `MYSQL_URI`)
 - Auth: Auth0 (SPA SDK on the frontend, JWT validation on the backend)
 
 ### Frontend
 
-`src/App.vue` handles view routing via a `viewMap` object — there is no Vue Router. Clicking nav items sets a `currentView` ref that swaps which component is rendered. Which views are actually shown is filtered by the current user's role (see `useAuthStore.allowedViews()`).
+There is no Vue Router. `src/App.vue` chooses one of two shells:
+- **`StorefrontShell`** (`src/components/shell/`) is shown to guests, customers, and staff who pick the `customer` nav entry. It switches between `MenuBrowser`, `CheckoutPanel` and `OrderTracker` (`src/components/storefront/`) using a `storefrontView` ref (`'browse' | 'checkout' | 'orders'`). `App.vue` owns that ref and passes it down with `provide('storefrontView')`. Guests can browse and fill a cart without logging in.
+- **`ConsoleShell`** is shown to staff roles. It renders the component that `VIEW_MAP[currentView]` points to, and filters the nav to the current role with `useAuthStore.allowedViews()`.
 
-Two singleton stores under `src/store/` (both manually managed — not Pinia):
-- `usePosStore.js` — reactive POS state + async methods that call the backend REST API. Base URL via `VITE_API_URL` (empty = same-origin proxy in dev, full URL in prod).
-- `useAuthStore.js` — wraps `@auth0/auth0-vue`. `fetchRole()` calls `/api/auth/me` with the Auth0 access token, which returns `{ id, userType, name, email, role }`. `ROLE_DEFAULT_VIEW` and `ROLE_VIEWS` constants define default landing view and allowed views per role.
+Checkout needs a login. The cart is saved to `sessionStorage` together with a "pending checkout" flag, so it survives the Auth0 redirect. After login, the auth watcher in `App.vue` reads the flag and sends the user to `'checkout'`.
+
+Reusable UI components live in `src/components/ui/` (`UiButton`, `UiModal`, `UiField`, `UiToast`, `UiIcon`, etc.). Design tokens live in `src/styles/tokens.css`.
+
+Singleton stores under `src/store/` (all managed by hand, not Pinia):
+- `usePosStore.js`: reactive POS state and async methods that call the backend REST API. Base URL comes from `VITE_API_URL` (empty = same-origin proxy in dev, full URL in prod). It no longer loads data when created. The storefront calls `loadPublic()` to fetch only the menu, and `App.vue` calls `loadAll()` after the role resolves.
+- `useAuthStore.js`: wraps `@auth0/auth0-vue`. `fetchRole()` calls `/api/auth/me` with the Auth0 access token, which returns `{ id, userType, name, email, role }`. The `ROLE_DEFAULT_VIEW` and `ROLE_VIEWS` constants set the landing view and allowed views for each role (customer → `storefront`). `isGuest` is true when the user is not logged in.
+- `useCartStore.js`: the storefront cart, saved to `sessionStorage`. `consumePendingCheckout()` reads and clears the checkout-after-login flag.
+- `useUiStore.js`: the toast queue. Components use it through `useToast()` in `src/lib/useToast.js` (`success`/`info`/`error`; error toasts stay until dismissed).
 
 Auth0 is initialized in `src/main.js` via `createAuth0({ domain, clientId, audience })`. After login, components fetch the backend-resolved role via `useAuthStore.fetchRole()` before gating navigation.
 
 Key views and their roles:
 - **POS Terminal** — order creation (cashier, manager, admin)
 - **Kitchen Display** (`KitchenDisplay.vue`) — real-time order queue, status progression (pending → preparing → ready → completed), driver assignment (kitchen, cashier, manager, admin)
-- **Customer View** (`CustomerView.vue`) — menu browsing, cart, order placement, delivery tracking with Leaflet map (customer)
+- **Storefront** (`StorefrontShell.vue` + `src/components/storefront/`) — menu browsing, item customization, cart, checkout, order tracking with a lazy-loaded Leaflet map (`DeliveryMap.vue`) (guests + customer)
 - **Driver Portal** (`DriverView.vue`) — delivery order selection, GPS position broadcasting via Geolocation API (driver)
 - **User Management** (`UserManagement.vue`) — admin only
 
