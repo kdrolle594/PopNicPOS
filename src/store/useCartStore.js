@@ -1,5 +1,5 @@
 import { reactive, computed, watch } from 'vue';
-import { lineSignature } from '../../shared/menuOptions.js';
+import { lineSignature, validateSelection, linePrice, lineLabel } from '../../shared/menuOptions.js';
 
 const STORAGE_KEY = 'popnic.cart.v2';
 // v1 lines stored hard-coded option fields; they cannot be priced any more.
@@ -112,13 +112,19 @@ export function useCartStore() {
     const removed = [];
     state.items = state.items.filter((line) => {
       const match = live.get(line.menuItemId);
-      const offered = new Set(
-        (match?.optionGroups || []).flatMap((g) => g.choices.filter((c) => c.available !== false).map((c) => c.id))
-      );
-      const ok = Boolean(match) && match.available !== false && !match.soldOut
-        && (line.choiceIds || []).every((id) => offered.has(id));
-      if (!ok) removed.push(line.name);
-      return ok;
+      const baseOk = Boolean(match) && match.available !== false && !match.soldOut;
+      const ok = baseOk && validateSelection(match, line.choiceIds || []).ok;
+      if (!ok) {
+        // Use the line's own name here — it's about to be dropped, so it's
+        // never re-labelled below.
+        removed.push(line.name);
+        return false;
+      }
+      // A live price or option-name change should be reflected on a kept
+      // line rather than left stale until the next add.
+      line.price = linePrice(match, line.choiceIds);
+      line.name = lineLabel(match, line.choiceIds);
+      return true;
     });
     return { removed };
   }

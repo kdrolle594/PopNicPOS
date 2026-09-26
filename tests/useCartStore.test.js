@@ -143,6 +143,35 @@ describe('reconcileWithMenu — options', () => {
     const { removed } = cart.reconcileWithMenu([{ ...menu[0], soldOut: true }]);
     expect(removed).toEqual(['Margherita']);
   });
+
+  it('drops a line that no longer satisfies a required group', async () => {
+    const cart = await freshStore();
+    // The line has no picks for group 5 — fine when it added, but the
+    // group has since become required (minSelect: 1).
+    cart.addLine({ menuItemId: 3, name: 'Wrap', price: 8, choiceIds: [] });
+    const wrapMenu = [
+      { id: 3, name: 'Wrap', available: true, optionGroups: [
+        { id: 5, name: 'Protein', minSelect: 1, maxSelect: 1, choices: [{ id: 50, name: 'Chicken', available: true }] },
+      ] },
+    ];
+    const { removed } = cart.reconcileWithMenu(wrapMenu);
+    expect(cart.state.items).toHaveLength(0);
+    expect(removed).toEqual(['Wrap']);
+  });
+
+  it('updates price and name for a kept line when the menu changes', async () => {
+    const cart = await freshStore();
+    cart.addLine({ menuItemId: 2, name: 'Pepperoni (Large)', price: 15, choiceIds: [13] });
+    const repriced = [
+      { id: 2, name: 'Pepperoni', price: 12, available: true, optionGroups: [
+        { id: 1, minSelect: 1, maxSelect: 1, choices: [{ id: 13, name: 'Extra Large', priceDelta: 5, available: true }] },
+      ] },
+    ];
+    const { removed } = cart.reconcileWithMenu(repriced);
+    expect(removed).toEqual([]);
+    expect(cart.state.items[0].price).toBe(17);
+    expect(cart.state.items[0].name).toBe('Pepperoni (Extra Large)');
+  });
 });
 
 describe('legacy cart', () => {
