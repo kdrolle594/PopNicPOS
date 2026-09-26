@@ -1,11 +1,14 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, onMounted, onUnmounted } from 'vue';
 import { usePosStore } from '../store/usePosStore';
+import OptionGroupsEditor from './OptionGroupsEditor.vue';
+import { subscribeMenu } from '../lib/realtime.js';
 
-const { state, addMenuItem, updateMenuItem, deleteMenuItem } = usePosStore();
+const { state, addMenuItem, updateMenuItem, deleteMenuItem, loadOptionGroups, refreshMenu } = usePosStore();
 
 const modalOpen = ref(false);
 const editingId = ref('');
+const activeTab = ref('items');
 
 const form = reactive({
   name: '',
@@ -18,6 +21,7 @@ const form = reactive({
   inventoryItems: [],
   imageUrl: '',
   description: '',
+  optionGroupIds: [],
 });
 
 const imagePreviewFailed = ref(false);
@@ -52,6 +56,7 @@ function resetForm() {
   form.inventoryItems = [];
   form.imageUrl = '';
   form.description = '';
+  form.optionGroupIds = [];
   imagePreviewFailed.value = false;
 }
 
@@ -73,6 +78,7 @@ function openEdit(item) {
   form.inventoryItems = Array.isArray(item.inventoryItems) ? item.inventoryItems.map((inv) => ({ ...inv })) : [];
   form.imageUrl = item.imageUrl || '';
   form.description = item.description || '';
+  form.optionGroupIds = [...(item.optionGroupIds || [])];
   imagePreviewFailed.value = false;
   modalOpen.value = true;
 }
@@ -129,6 +135,7 @@ async function saveItem() {
     inventoryItems: form.inventoryItems
       .map((inv) => ({ id: inv.id, quantity: Math.max(0.01, Number(inv.quantity) || 0.01) }))
       .filter((inv) => Boolean(inv.id)),
+    optionGroupIds: [...form.optionGroupIds],
   };
 
   if (editingId.value) {
@@ -150,6 +157,33 @@ async function removeItem(item) {
 function toggleAvailability(item) {
   updateMenuItem({ ...item, available: !item.available });
 }
+
+function toggleOptionGroup(groupId) {
+  form.optionGroupIds = form.optionGroupIds.includes(groupId)
+    ? form.optionGroupIds.filter((id) => id !== groupId)
+    : [...form.optionGroupIds, groupId];
+}
+
+// Another manager's edits (or an order selling something out) show up live.
+let unsubscribeMenu = null;
+let disposed = false;
+onMounted(async () => {
+  loadOptionGroups().catch((err) => console.error('Failed to load option groups:', err));
+  try {
+    const unsubscribe = await subscribeMenu(() => {
+      refreshMenu();
+      loadOptionGroups().catch(() => {});
+    });
+    if (disposed) unsubscribe();
+    else unsubscribeMenu = unsubscribe;
+  } catch (err) {
+    console.warn('Live menu updates unavailable:', err);
+  }
+});
+onUnmounted(() => {
+  disposed = true;
+  if (unsubscribeMenu) unsubscribeMenu();
+});
 </script>
 
 <template>
@@ -159,9 +193,25 @@ function toggleAvailability(item) {
         <h1 class="text-3xl font-bold">Menu Management</h1>
         <p class="text-gray-500">Add, edit, and manage menu items</p>
       </div>
-      <button class="px-4 py-2 rounded bg-blue-600 text-white" @click="openCreate">Add Menu Item</button>
+      <button v-if="activeTab === 'items'" class="px-4 py-2 rounded bg-blue-600 text-white" @click="openCreate">Add Menu Item</button>
     </div>
 
+    <div class="flex gap-2 border-b">
+      <button
+        class="px-3 py-2 text-sm -mb-px border-b-2"
+        :class="activeTab === 'items' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500'"
+        @click="activeTab = 'items'"
+      >Menu Items</button>
+      <button
+        class="px-3 py-2 text-sm -mb-px border-b-2"
+        :class="activeTab === 'options' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500'"
+        @click="activeTab = 'options'"
+      >Options</button>
+    </div>
+
+    <OptionGroupsEditor v-if="activeTab === 'options'" />
+
+    <template v-if="activeTab === 'items'">
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Total Items</p><p class="text-2xl font-bold">{{ stats.total }}</p></div>
       <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Available</p><p class="text-2xl font-bold text-green-600">{{ stats.available }}</p></div>
@@ -197,6 +247,7 @@ function toggleAvailability(item) {
               <button class="px-2 py-1 rounded text-xs" :class="item.available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'" @click="toggleAvailability(item)">
                 {{ item.available ? 'Available' : 'Unavailable' }}
               </button>
+              <span v-if="item.soldOut && item.available" class="ml-2 text-xs text-red-600">Sold out</span>
             </td>
             <td class="p-3">
               <div class="flex gap-2">
@@ -208,6 +259,7 @@ function toggleAvailability(item) {
         </tbody>
       </table>
     </div>
+    </template>
 
     <div v-if="modalOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div class="bg-white rounded-xl border w-full max-w-xl p-4 space-y-3">
@@ -317,6 +369,20 @@ function toggleAvailability(item) {
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="border rounded-lg p-3 space-y-2">
+          <p class="text-sm font-medium">Options</p>
+          <p class="text-xs text-gray-500">Pickers shown when this item is ordered, in the order you tick them.</p>
+          <p v-if="!state.optionGroups.length" class="text-xs text-gray-500">No option groups yet — create them in the Options tab.</p>
+          <label v-for="group in state.optionGroups" :key="group.id" class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              :checked="form.optionGroupIds.includes(group.id)"
+              @change="toggleOptionGroup(group.id)"
+            />
+            {{ group.name }}
+          </label>
         </div>
 
         <div class="flex items-center gap-4 text-sm">
