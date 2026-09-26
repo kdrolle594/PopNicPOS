@@ -20,6 +20,9 @@ npm start
 # Seed the database
 npm run seed
 
+# Add option groups, specialty pizzas and attachments without resetting data
+npm run seed:options
+
 # Run idempotent schema migrations (see server/migrate.js)
 node server/migrate.js
 
@@ -72,25 +75,28 @@ Key views and their roles:
 
 `server/app.js` builds the Express app (CORS, routes, auth policy); `server/index.js` is the local dev entry that verifies the MySQL connection (but continues on failure) and listens on `PORT`; `api/index.js` exports the same app for Vercel. A health check is exposed at `GET /api/health`.
 
-Routes: `/api/auth`, `/api/realtime`, `/api/menu-items`, `/api/inventory-items`, `/api/orders`, `/api/customers`, `/api/users`.
+Routes: `/api/auth`, `/api/realtime`, `/api/menu-items`, `/api/option-groups`, `/api/option-choices`, `/api/inventory-items`, `/api/orders`, `/api/customers`, `/api/users`.
 
 **Auth middleware** (`server/middleware/auth.js`) exposes three pieces:
 - `jwtCheck` — `express-oauth2-jwt-bearer` verifying the Auth0 JWT (audience `AUTH0_AUDIENCE`, issuer `https://AUTH0_DOMAIN/`).
 - `loadUser` — after JWT verify, resolves `req.user` from the DB. Matches first by `auth_uid` = Auth0 `sub`; falls back to email match against pre-registered employees (links `auth_uid`, but only when the token's `email_verified` claim is true — unverified matches get a 403); otherwise auto-creates an `app_user` + `customer_profile` row as a customer. Email/email_verified are read from either the namespaced claims (`${AUTH0_AUDIENCE}/email`, `${AUTH0_AUDIENCE}/email_verified`) or the standard claims.
 - `requireRole(...roles)` — 403 if `req.user.role` is not in the allowed list.
 
-Route-level auth policy is set in `server/app.js` — e.g. `GET /api/menu-items` is public, mutations require manager+; `/api/orders` POST allows customers, other verbs allow all operational roles; `/api/inventory-items` requires manager+; `/api/customers` allows cashier+ (POS loyalty flow) except DELETE which is manager+, with `/me` open to any authenticated user.
+Route-level auth policy is set in `server/app.js` — e.g. `GET /api/menu-items` is public, mutations require manager+; `/api/orders` POST allows customers, other verbs allow all operational roles; `/api/inventory-items` requires manager+; `/api/option-groups` and `/api/option-choices` are manager+; `/api/customers` allows cashier+ (POS loyalty flow) except DELETE which is manager+, with `/me` open to any authenticated user.
 
-`server/routes/orders.js` is the most complex route — order creation uses a MySQL transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links. Totals are computed server-side from DB prices; `paidWithPoints`, custom line items, and the `pointsEarned`/`pointsRedeemed` fields are staff-only (forced to 0/rejected for customers).
+`server/routes/orders.js` is the most complex route — order creation uses a MySQL transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links. Each menu-item line sends `choiceIds`; `server/lib/orderOptions.js` validates them against the item's attached option groups (shared rules in `shared/menuOptions.js`), prices the line (base + choice deltas, stored in `unit_price`), snapshots the choices into `customizations`, and stock for recipes and linked choices is deducted with rows locked. Cancelling restocks both.
 
 Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib/realtime.js`):
 - Order events publish to the Ably `orders` channel: `newOrder`, `orderStatusUpdated`, `orderDriverAssigned`
 - Drivers publish GPS to `delivery:{orderId}` channels; customers subscribe to the same channel
-- `GET /api/realtime/token` issues Ably token requests — drivers get publish rights on `delivery:*`, everyone else is subscribe-only
+- `menu` channel: the server publishes an empty `menuChanged` after menu/option/inventory edits and when an order or cancellation moves stock across an availability threshold; clients refetch `GET /api/menu-items`.
+- `GET /api/realtime/token` works for guests (subscribe-only on `menu`); drivers get publish rights on `delivery:*`, everyone else is subscribe-only.
 
 ### Data model note
 
 `app_user` is the core identity row. `employee_profile` (joined by `user_id`) holds the `role` enum for staff (cashier, kitchen, manager, admin, driver); customers have no employee_profile row and fall back to `user_type = 'customer'` as their role. When adding a new staff role, update both the enum (via a migration in `server/migrate.js`) and the `ROLE_*` maps in `useAuthStore.js`.
+
+Menu options: `option_group` / `option_choice` / `menu_item_option_group` hold item options. A choice is available when switched on and its linked stock covers `inventory_qty`; an item is `soldOut` when switched off, short on a recipe ingredient, or a required group has no available choice (`server/lib/availability.js`).
 
 ### Environment Variables
 
