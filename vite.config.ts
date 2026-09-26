@@ -4,9 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  // GitHub Pages project pages are served at /REPO-NAME/ — replace with your actual repo name
-  // Leave as '/' for custom domains or when using Vercel
-  base: process.env.NODE_ENV === 'production' ? (process.env.VITE_BASE_PATH || '/PopNicPOS/') : '/PopNicPOS/',
+  // Vercel serves the app at the root; GitHub Pages serves it at /PopNicPOS/ (or VITE_BASE_PATH)
+  base: process.env.VERCEL ? '/' : (process.env.VITE_BASE_PATH || '/PopNicPOS/'),
   plugins: [
     vue(),
     tailwindcss(),

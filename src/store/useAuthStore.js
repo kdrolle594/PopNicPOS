@@ -72,7 +72,7 @@ export function useAuthStore() {
     state.role = null;
     state.appUser = null;
     auth0().logout({
-      logoutParams: { returnTo: window.location.origin + (import.meta.env.VITE_BASE_PATH || '/') },
+      logoutParams: { returnTo: window.location.origin + import.meta.env.BASE_URL },
     });
   }
 
