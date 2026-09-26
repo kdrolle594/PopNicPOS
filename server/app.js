@@ -9,6 +9,7 @@ import customerRoutes from './routes/customers.js';
 import authRoutes from './routes/auth.js';
 import realtimeRoutes from './routes/realtime.js';
 import usersRoutes from './routes/users.js';
+import { groupsRouter as optionGroupRoutes, choicesRouter as optionChoiceRoutes } from './routes/optionGroups.js';
 import { jwtCheck, loadUser, requireRole, optionalAuth } from './middleware/auth.js';
 
 const app = express();
@@ -19,7 +20,7 @@ const corsOrigin = frontendUrl
   : true;
 app.use(cors({
   origin: corsOrigin,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 app.use(express.json());
 
@@ -46,6 +47,10 @@ app.use('/api/menu-items', (req, res, next) => {
   run();
 });
 app.use('/api/menu-items', menuRoutes);
+
+const optionAuth = [jwtCheck, loadUser, requireRole('manager', 'admin')];
+app.use('/api/option-groups', ...optionAuth, optionGroupRoutes);
+app.use('/api/option-choices', ...optionAuth, optionChoiceRoutes);
 
 app.use('/api/orders', jwtCheck, loadUser);
 app.use('/api/orders', (req, res, next) => {
