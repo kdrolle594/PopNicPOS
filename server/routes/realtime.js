@@ -1,22 +1,17 @@
 import { Router } from 'express';
-import { jwtCheck, loadUser } from '../middleware/auth.js';
-import { createTokenRequest } from '../realtime.js';
+import { randomUUID } from 'node:crypto';
+import { optionalAuth } from '../middleware/auth.js';
+import { createTokenRequest, capabilityFor } from '../realtime.js';
 
 const router = Router();
 
-// GET /api/realtime/token — issue a short-lived Ably token request for the
-// authenticated user. Drivers may publish on delivery channels; everyone else
-// is subscribe-only.
-router.get('/token', jwtCheck, loadUser, async (req, res) => {
+// GET /api/realtime/token — issue a short-lived Ably token request. Guests get
+// a subscribe-only token for the menu channel; signed-in users get their role's
+// rights (see capabilityFor).
+router.get('/token', optionalAuth, async (req, res) => {
   try {
-    const isDriver = req.user.role === 'driver';
-    const capability = isDriver
-      ? { 'delivery:*': ['publish', 'subscribe'], orders: ['subscribe'] }
-      : { 'delivery:*': ['subscribe'], orders: ['subscribe'] };
-    const tokenRequest = await createTokenRequest({
-      clientId: String(req.user.id),
-      capability,
-    });
+    const clientId = req.user ? String(req.user.id) : `guest-${randomUUID()}`;
+    const tokenRequest = await createTokenRequest({ clientId, capability: capabilityFor(req.user) });
     res.json(tokenRequest);
   } catch (err) {
     console.error(err);

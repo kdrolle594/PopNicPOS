@@ -32,6 +32,21 @@ export function emitOrderDriverAssigned(orderId, driver) {
   return publish('orders', 'orderDriverAssigned', { orderId, ...driver });
 }
 
+// Clients refetch GET /api/menu-items on this event, so the payload is empty.
+export function emitMenuChanged() {
+  return publish('menu', 'menuChanged', {});
+}
+
+// Channel rights per caller. Guests may only watch menu availability.
+export function capabilityFor(user) {
+  if (!user) return { menu: ['subscribe'] };
+  return {
+    menu: ['subscribe'],
+    orders: ['subscribe'],
+    'delivery:*': user.role === 'driver' ? ['publish', 'subscribe'] : ['subscribe'],
+  };
+}
+
 export function createTokenRequest({ clientId, capability }) {
   const c = client();
   if (!c) throw new Error('ABLY_API_KEY not configured');

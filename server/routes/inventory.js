@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { emitMenuChanged } from '../realtime.js';
 
 const router = Router();
 
@@ -42,6 +43,7 @@ router.post('/', async (req, res) => {
        VALUES (?, ?, ?, ?, ?)`,
       [name, quantity || 0, unit, reorderLevel || 0, costPerUnit || 0]
     );
+    await emitMenuChanged();
     res.status(201).json({
       id: result.insertId,
       name,
@@ -69,6 +71,7 @@ router.put('/:id', async (req, res) => {
        WHERE id=?`,
       [name, quantity, unit, reorderLevel, costPerUnit, req.params.id]
     );
+    await emitMenuChanged();
     res.json({
       id: Number(req.params.id),
       name,
@@ -88,6 +91,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM inventory_item WHERE id = ?', [req.params.id]);
+    await emitMenuChanged();
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
