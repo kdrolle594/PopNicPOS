@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { emitNewOrder, emitOrderStatusUpdated, emitOrderDriverAssigned } from '../realtime.js';
+import { emitNewOrder, emitOrderStatusUpdated, emitOrderDriverAssigned, emitMenuChanged } from '../realtime.js';
+import { resolveLine, OrderLineError, snapshotStock } from '../lib/orderOptions.js';
+import { totalStockNeeds, findShortfall, crossesThreshold } from '../lib/availability.js';
+import { loadOptionData, loadStock, loadThresholds, groupsForItem } from '../lib/optionData.js';
 
 const router = Router();
 
@@ -19,8 +22,6 @@ function parseCustomizations(raw) {
     return {};
   }
 }
-// Must stay in sync with POSTerminal.vue pizzaSizeOptions priceDelta values
-const PIZZA_SIZE_DELTAS = { 'personal pan': -2, medium: 0, large: 3 };
 
 // GET /api/orders — list all orders with line items
 router.get('/', async (req, res) => {
@@ -144,39 +145,94 @@ router.post('/', async (req, res) => {
     const safePointsEarned   = isStaff ? Math.max(0, Number(pointsEarned)   || 0) : 0;
     const safePointsRedeemed = isStaff ? Math.max(0, Number(pointsRedeemed) || 0) : 0;
 
-    // Compute server-authoritative total from DB prices
-    const menuItemIds = [...new Set(items.filter((i) => i.menuItemId).map((i) => i.menuItemId))];
-    let dbPriceMap = {};
+    // Load menu rows, recipes and options for every referenced item, then lock
+    // every stock row those lines could touch (ascending id, avoids deadlocks).
+    const menuItemIds = [...new Set(items.filter((i) => i.menuItemId).map((i) => Number(i.menuItemId)))];
+    const menuMap = new Map();
+    const recipeMap = new Map();
+    let optionData = { groups: new Map(), attachments: new Map() };
     if (menuItemIds.length > 0) {
-      const [menuRows] = await conn.query('SELECT id, price FROM menu_item WHERE id IN (?)', [menuItemIds]);
-      dbPriceMap = Object.fromEntries(menuRows.map((r) => [r.id, Number(r.price)]));
+      const [menuRows] = await conn.query(
+        'SELECT id, name, price, available FROM menu_item WHERE id IN (?)', [menuItemIds]
+      );
+      for (const r of menuRows) menuMap.set(r.id, r);
+      const [recipeRows] = await conn.query(
+        'SELECT menu_item_id, inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id IN (?)',
+        [menuItemIds]
+      );
+      for (const r of recipeRows) {
+        if (!recipeMap.has(r.menu_item_id)) recipeMap.set(r.menu_item_id, []);
+        recipeMap.get(r.menu_item_id).push({ inventoryItemId: r.inventory_item_id, quantity: Number(r.quantity_used) });
+      }
+      optionData = await loadOptionData(conn);
     }
+    const stockIds = [];
+    for (const id of menuItemIds) {
+      for (const link of recipeMap.get(id) || []) stockIds.push(link.inventoryItemId);
+      for (const group of groupsForItem(id, optionData)) {
+        for (const c of group.choices) if (c.inventoryItemId != null) stockIds.push(c.inventoryItemId);
+      }
+    }
+    const stock = await loadStock(conn, stockIds, { forUpdate: true });
 
     let serverTotal = 0;
+    const stockLines = [];
     for (const item of items) {
-      if (item.paidWithPoints) continue;
       if (item.menuItemId) {
-        if (dbPriceMap[item.menuItemId] == null) {
+        const row = menuMap.get(Number(item.menuItemId));
+        if (!row) {
           await conn.rollback();
           return res.status(400).json({ error: `Unknown menu item id: ${item.menuItemId}` });
         }
-        let price = dbPriceMap[item.menuItemId];
-        if (item.options?.pizzaSize) price += PIZZA_SIZE_DELTAS[item.options.pizzaSize] ?? 0;
-        serverTotal += price * item.quantity;
+        let resolved;
+        try {
+          resolved = resolveLine({
+            menuItem: {
+              id: row.id, name: row.name, price: Number(row.price),
+              available: Boolean(row.available), recipe: recipeMap.get(row.id) || [],
+            },
+            groups: groupsForItem(row.id, optionData),
+            choiceIds: item.choiceIds,
+            stock,
+          });
+        } catch (e) {
+          if (!(e instanceof OrderLineError)) throw e;
+          await conn.rollback();
+          return res.status(400).json({ error: e.message });
+        }
+        item.menuItemId = row.id;
+        item.name = resolved.label;
+        item.unitPrice = item.paidWithPoints ? 0 : resolved.unitPrice;
+        item.customizations = resolved.snapshot;
+        stockLines.push({ stockPerUnit: resolved.stockPerUnit, quantity: item.quantity });
       } else {
         if (!isStaff) {
           await conn.rollback();
           return res.status(403).json({ error: 'Custom line items require a staff role' });
         }
-        const customPrice = Number(item.price);
-        if (!isFinite(customPrice) || customPrice < 0) {
-          await conn.rollback();
-          return res.status(400).json({ error: 'Invalid price on custom line item' });
+        if (item.paidWithPoints) {
+          item.unitPrice = 0;
+        } else {
+          const customPrice = Number(item.price);
+          if (!isFinite(customPrice) || customPrice < 0) {
+            await conn.rollback();
+            return res.status(400).json({ error: 'Invalid price on custom line item' });
+          }
+          item.unitPrice = customPrice;
         }
-        serverTotal += customPrice * item.quantity;
+        item.customizations = {};
       }
+      serverTotal += item.unitPrice * item.quantity;
     }
     serverTotal = Math.round(serverTotal * 100) / 100;
+
+    // Needs are summed across lines, so two lines cannot both take the last unit.
+    const stockNeeds = totalStockNeeds(stockLines);
+    const shortId = findShortfall(stockNeeds, stock);
+    if (shortId != null) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Insufficient inventory', inventoryItemId: shortId });
+    }
 
     // Server-authoritative order number with retry on UNIQUE collision
     let orderNumber, orderId;
@@ -227,42 +283,29 @@ router.post('/', async (req, res) => {
           item.menuItemId || null,
           item.name,
           item.quantity,
-          item.paidWithPoints ? 0 : (item.menuItemId ? dbPriceMap[item.menuItemId] : Number(item.price)),
+          item.unitPrice,
           item.paidWithPoints || false,
           item.notes || null,
-          JSON.stringify(item.options || {}),
+          JSON.stringify(item.customizations || {}),
         ]
       );
     }
 
-    // Check and deduct inventory — lock rows first to prevent overselling
-    for (const item of items) {
-      if (!item.menuItemId) continue;
-      const [recipeLinks] = await conn.query(
-        'SELECT inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id = ?',
-        [item.menuItemId]
+    // Deduct stock (rows already locked above) and note what changed.
+    const stockChanges = new Map();
+    for (const [invId, needed] of stockNeeds) {
+      if (!stock.has(invId)) continue; // row deleted — nothing to deduct
+      await conn.query(
+        'UPDATE inventory_item SET quantity = quantity - ?, last_updated = NOW() WHERE id = ?',
+        [needed, invId]
       );
-      for (const link of recipeLinks) {
-        const needed = Number(link.quantity_used) * item.quantity;
-        const [[inv]] = await conn.query(
-          'SELECT quantity FROM inventory_item WHERE id = ? FOR UPDATE',
-          [link.inventory_item_id]
-        );
-        if (inv.quantity < needed) {
-          await conn.rollback();
-          return res.status(409).json({
-            error: 'Insufficient inventory',
-            inventoryItemId: link.inventory_item_id,
-          });
-        }
-        await conn.query(
-          'UPDATE inventory_item SET quantity = quantity - ?, last_updated = NOW() WHERE id = ?',
-          [needed, link.inventory_item_id]
-        );
-      }
+      const before = stock.get(invId);
+      stockChanges.set(invId, { before, after: before - needed });
     }
+    const thresholds = await loadThresholds(conn, [...stockChanges.keys()]);
 
     await conn.commit();
+    if (crossesThreshold(stockChanges, thresholds)) await emitMenuChanged();
 
     const responseOrder = {
       id: orderId,
@@ -282,7 +325,15 @@ router.post('/', async (req, res) => {
       pointsRedeemed: safePointsRedeemed,
       createdAt: new Date().toISOString(),
       completedAt: null,
-      items: items || [],
+      items: items.map((i) => ({
+        menuItemId: i.menuItemId || null,
+        name: i.name,
+        quantity: i.quantity,
+        price: i.unitPrice,
+        paidWithPoints: Boolean(i.paidWithPoints),
+        notes: i.notes || null,
+        options: i.customizations || {},
+      })),
     };
 
     emitNewOrder(responseOrder);
@@ -340,24 +391,37 @@ router.put('/:id/status', async (req, res) => {
 
     const isCancelling = status === 'cancelled' && current.status !== 'cancelled';
 
+    const stockChanges = new Map();
+    let thresholds = new Map();
     if (isCancelling) {
       const [orderItems] = await conn.query(
-        'SELECT menu_item_id, quantity FROM order_item WHERE order_id = ?',
+        'SELECT menu_item_id, quantity, customizations FROM order_item WHERE order_id = ?',
         [orderId]
       );
+      const restock = new Map();
+      const add = (id, qty) => restock.set(id, (restock.get(id) || 0) + qty);
       for (const item of orderItems) {
-        if (!item.menu_item_id) continue;
-        const [recipeLinks] = await conn.query(
-          'SELECT inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id = ?',
-          [item.menu_item_id]
-        );
-        for (const link of recipeLinks) {
-          await conn.query(
-            'UPDATE inventory_item SET quantity = quantity + ?, last_updated = NOW() WHERE id = ?',
-            [Number(link.quantity_used) * item.quantity, link.inventory_item_id]
+        if (item.menu_item_id) {
+          const [recipeLinks] = await conn.query(
+            'SELECT inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id = ?',
+            [item.menu_item_id]
           );
+          for (const link of recipeLinks) add(link.inventory_item_id, Number(link.quantity_used) * item.quantity);
+        }
+        for (const s of snapshotStock(parseCustomizations(item.customizations))) {
+          add(s.inventoryItemId, s.inventoryQty * item.quantity);
         }
       }
+      const before = await loadStock(conn, [...restock.keys()], { forUpdate: true });
+      for (const [invId, qty] of restock) {
+        if (!before.has(invId)) continue;
+        await conn.query(
+          'UPDATE inventory_item SET quantity = quantity + ?, last_updated = NOW() WHERE id = ?',
+          [qty, invId]
+        );
+        stockChanges.set(invId, { before: before.get(invId), after: before.get(invId) + qty });
+      }
+      thresholds = await loadThresholds(conn, [...stockChanges.keys()]);
     }
 
     // Only stamp completed_at when first transitioning to 'completed'
@@ -373,6 +437,7 @@ router.put('/:id/status', async (req, res) => {
     }
 
     await conn.commit();
+    if (crossesThreshold(stockChanges, thresholds)) await emitMenuChanged();
 
     emitOrderStatusUpdated(orderId, status);
     res.json({ id: orderId, status, completedAt: completedAt ?? null });
