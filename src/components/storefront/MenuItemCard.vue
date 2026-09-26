@@ -1,5 +1,6 @@
 <script setup>
 import UiCard from '../ui/UiCard.vue';
+import UiBadge from '../ui/UiBadge.vue';
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -13,7 +14,13 @@ function getInitial(name) {
 </script>
 
 <template>
-  <UiCard interactive :padded="false" @click="emit('customize', item)">
+  <UiCard
+    interactive
+    :padded="false"
+    :class="{ 'mic--sold-out': item.soldOut }"
+    :aria-disabled="item.soldOut || undefined"
+    @click="!item.soldOut && emit('customize', item)"
+  >
     <!-- 16:9 image / gradient fallback -->
     <div class="mic__media" aria-hidden="true">
       <img
@@ -34,7 +41,9 @@ function getInitial(name) {
       <p v-if="item.description" class="mic__desc">{{ item.description }}</p>
       <div class="mic__footer">
         <span class="mic__price">${{ Number(item.price).toFixed(2) }}</span>
+        <UiBadge v-if="item.soldOut" tone="neutral">Sold out</UiBadge>
         <button
+          v-else
           type="button"
           class="mic__add"
           :aria-label="`Add ${item.name} to cart`"
@@ -149,5 +158,10 @@ function getInitial(name) {
 .mic__add:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+.mic--sold-out {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

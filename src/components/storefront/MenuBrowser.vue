@@ -1,8 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { usePosStore }   from '../../store/usePosStore.js';
 import { useCartStore }  from '../../store/useCartStore.js';
 import { useToast }      from '../../lib/useToast.js';
+import { subscribeMenu } from '../../lib/realtime.js';
+import { needsCustomization } from '../../../shared/menuOptions.js';
 import UiChip            from '../ui/UiChip.vue';
 import UiSkeleton        from '../ui/UiSkeleton.vue';
 import UiEmptyState      from '../ui/UiEmptyState.vue';
@@ -15,22 +17,50 @@ const toast = useToast();
 
 const selectedCategory = ref('All');
 const sheetOpen        = ref(false);
-const sheetItem        = ref(null);
+const sheetItemId      = ref(null);
+// Read through the store so a live refresh updates the open sheet.
+const sheetItem = computed(
+  () => store.state.menuItems.find((i) => i.id === sheetItemId.value) || null
+);
 
-// ── On mount: load public menu if not yet loaded ──────────────────────────────
+// ── On mount: load public menu if not yet loaded, subscribe to live changes ───
+
+function reconcileCart() {
+  if (!cart.state.items.length) return;
+  const { removed } = cart.reconcileWithMenu(store.state.menuItems);
+  if (removed.length) {
+    toast.info(
+      `${removed.join(', ')} ${removed.length === 1 ? 'is' : 'are'} no longer available and ${removed.length === 1 ? 'was' : 'were'} removed from your cart.`,
+    );
+  }
+}
+
+async function onMenuChanged() {
+  await store.refreshMenu();
+  reconcileCart();
+}
+
+let unsubscribeMenu = null;
+let disposed = false;
 
 onMounted(async () => {
+  if (cart.consumeResetNotice()) toast.info('Your cart was cleared because the menu changed.');
   if (!store.state.menuItems.length) {
     await store.loadPublic();
-    if (cart.state.items.length) {
-      const { removed } = cart.reconcileWithMenu(store.state.menuItems);
-      if (removed.length) {
-        toast.info(
-          `${removed.join(', ')} ${removed.length === 1 ? 'is' : 'are'} no longer available and ${removed.length === 1 ? 'was' : 'were'} removed from your cart.`,
-        );
-      }
-    }
+    reconcileCart();
   }
+  try {
+    const unsubscribe = await subscribeMenu(onMenuChanged);
+    if (disposed) unsubscribe();
+    else unsubscribeMenu = unsubscribe;
+  } catch (err) {
+    console.warn('Live menu updates unavailable:', err);
+  }
+});
+
+onUnmounted(() => {
+  disposed = true;
+  if (unsubscribeMenu) unsubscribeMenu();
 });
 
 // ── Derived data ──────────────────────────────────────────────────────────────
@@ -52,39 +82,20 @@ const filteredItems = computed(() => {
   return available.filter((i) => i.category === selectedCategory.value);
 });
 
-// ── Customization detection ───────────────────────────────────────────────────
-
-function needsCustomization(item) {
-  const name = (item.name || '').toLowerCase();
-  const cat  = (item.category || '').toLowerCase();
-  return (
-    name.includes('pizza') || cat.includes('pizza') ||
-    name.includes('wings') ||
-    name.includes('soda')  || name.includes('cola') ||
-    name.includes('coke')  || name.includes('sprite') ||
-    name.includes('root beer')
-  );
-}
-
 // ── Cart actions ──────────────────────────────────────────────────────────────
 
 function onAdd(item) {
-  cart.addLine({
-    menuItemId: item.id,
-    name:       item.name,
-    price:      Number(item.price),
-    options:    {},
-    notes:      undefined,
-  });
+  cart.addLine({ menuItemId: item.id, name: item.name, price: Number(item.price), choiceIds: [] });
   toast.success(`${item.name} added to cart`);
 }
 
 function onCustomize(item) {
+  if (item.soldOut) return;
   if (!needsCustomization(item)) {
     onAdd(item);
     return;
   }
-  sheetItem.value = item;
+  sheetItemId.value = item.id;
   sheetOpen.value = true;
 }
 
@@ -92,7 +103,7 @@ function onSheetConfirm(payload) {
   cart.addLine(payload);
   toast.success(`${payload.name} added to cart`);
   sheetOpen.value = false;
-  sheetItem.value = null;
+  sheetItemId.value = null;
 }
 
 function onSheetClose() {
@@ -148,7 +159,7 @@ function onSheetClose() {
         v-for="item in filteredItems"
         :key="item.id"
         :item="item"
-        @add="onAdd"
+        @add="onCustomize"
         @customize="onCustomize"
       />
     </div>
