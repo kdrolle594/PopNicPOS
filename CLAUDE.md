@@ -23,6 +23,9 @@ npm run seed
 # Add option groups, specialty pizzas and attachments without resetting data
 npm run seed:options
 
+# Apply the current menu (renames, hides retired items, adds new items); --dry-run rolls back
+npm run seed:menu
+
 # Run idempotent schema migrations (see server/migrate.js)
 node server/migrate.js
 

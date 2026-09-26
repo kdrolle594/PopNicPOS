@@ -14,6 +14,7 @@
     "start": "concurrently \"node server/index.js\" \"vite\"",
     "seed": "node server/seed.js",
     "seed:options": "node server/seedOptions.js",
+    "seed:menu": "node server/seedMenu.js",
     "dev:all": "node server/seed.js & vite",
     "test": "vitest run",
     "test:watch": "vitest"

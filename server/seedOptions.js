@@ -23,8 +23,8 @@ export const OPTION_GROUPS = [
   {
     name: 'Wing Flavor', minSelect: 1, maxSelect: 1,
     choices: [
-      { name: 'Buffalo', isDefault: true }, { name: 'Honey Mustard' }, { name: 'Original' },
-      { name: 'BBQ' }, { name: 'Sweet and Spicy' },
+      { name: 'Buffalo', isDefault: true }, { name: 'Honey Mustard' }, { name: 'Garlic Parmesan' },
+      { name: 'Mango Habanero' }, { name: 'Sweet Chili' },
     ],
   },
   {
@@ -39,7 +39,9 @@ export const OPTION_GROUPS = [
 export const SPECIALTY_PIZZAS = [
   { name: 'Hawaiian Pizza', description: 'Ham and pineapple.' },
   { name: 'Meat Lovers Pizza', description: 'Pepperoni, sausage, bacon and ham.' },
-  { name: 'Veggie Pizza', description: 'Mushrooms, onions, bell peppers, black olives and tomatoes.' },
+  { name: 'Veggie Lovers Pizza', description: 'Mushrooms, onions, bell peppers, black olives and tomatoes.' },
+  { name: 'The Sweet Heat Pizza', description: null },
+  { name: 'Supreme Pizza', description: 'Pepperoni, sausage, bell peppers, onions, black olives and mushrooms.' },
 ];
 
 const SPECIALTY_NAMES = new Set(SPECIALTY_PIZZAS.map((p) => p.name.toLowerCase()));
