@@ -1,5 +1,6 @@
 <script setup>
 import { inject, ref, reactive, computed, onMounted, nextTick } from 'vue';
+import { lineSignature } from '../../../shared/menuOptions.js';
 import { useCartStore } from '../../store/useCartStore.js';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import { usePosStore } from '../../store/usePosStore.js';
@@ -124,8 +125,8 @@ async function submit() {
         menuItemId:     line.menuItemId,
         name:           line.name,
         quantity:       line.quantity,
-        options:        line.options || {},
-        notes:          line.notes   || null,
+        choiceIds:      line.choiceIds || [],
+        notes:          line.notes     || null,
         paidWithPoints: false,
       })),
     };
@@ -150,6 +151,8 @@ async function submit() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({ error: res.statusText }));
+      // Something sold out or changed since the menu loaded — resync the cart.
+      if (res.status === 400 || res.status === 409) await syncMenuAfterRejection();
       throw new Error(data.error || res.statusText);
     }
 
@@ -165,6 +168,12 @@ async function submit() {
   }
 }
 
+async function syncMenuAfterRejection() {
+  await pos.refreshMenu();
+  const { removed } = cart.reconcileWithMenu(pos.state.menuItems);
+  if (removed.length) toast.info(`Removed from your cart: ${removed.join(', ')}.`);
+}
+
 // ── Back ──────────────────────────────────────────────────────────────────────
 function goBack() {
   emit('back');
@@ -177,7 +186,7 @@ function formatPrice(amount) {
 }
 
 function lineKey(line) {
-  return line.menuItemId + '|' + JSON.stringify(line.options);
+  return lineSignature(line.menuItemId, line.choiceIds || []);
 }
 
 // ── Mount: reconcile cart + prefill ──────────────────────────────────────────

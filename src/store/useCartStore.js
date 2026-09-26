@@ -1,15 +1,27 @@
 import { reactive, computed, watch } from 'vue';
+import { lineSignature } from '../../shared/menuOptions.js';
 
-const STORAGE_KEY = 'popnic.cart.v1';
+const STORAGE_KEY = 'popnic.cart.v2';
+// v1 lines stored hard-coded option fields; they cannot be priced any more.
+const LEGACY_KEYS = ['popnic.cart.v1'];
 
-export function optionSignature(options = {}) {
-  return JSON.stringify({
-    pizzaSize: options.pizzaSize || null,
-    pizzaStyle: options.pizzaStyle || null,
-    pizzaToppings: (options.pizzaToppings || []).slice().sort(),
-    wingFlavor: options.wingFlavor || null,
-    sodaFlavor: options.sodaFlavor || null,
-  });
+function sig(line) {
+  return lineSignature(line.menuItemId, line.choiceIds || []);
+}
+
+function dropLegacyCarts() {
+  let dropped = false;
+  for (const key of LEGACY_KEYS) {
+    try {
+      if (sessionStorage.getItem(key) != null) {
+        sessionStorage.removeItem(key);
+        dropped = true;
+      }
+    } catch {
+      // Storage blocked — nothing to drop.
+    }
+  }
+  return dropped;
 }
 
 const EMPTY = () => ({
@@ -47,6 +59,8 @@ let storeInstance;
 export function useCartStore() {
   if (storeInstance) return storeInstance;
 
+  let resetNotice = dropLegacyCarts();
+
   const state = reactive({ ...EMPTY(), ...(readStorage() || {}) });
 
   watch(state, () => writeStorage({ ...state }), { deep: true });
@@ -56,32 +70,24 @@ export function useCartStore() {
     Number(state.items.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2))
   );
 
-  function addLine({ menuItemId, name, price, options = {}, notes }) {
-    const signature = optionSignature(options);
-    const existing = state.items.find(
-      (i) => i.menuItemId === menuItemId && optionSignature(i.options) === signature
-    );
+  function addLine({ menuItemId, name, price, choiceIds = [], notes }) {
+    const line = { menuItemId, name, price, choiceIds: [...choiceIds], notes, quantity: 1 };
+    const existing = state.items.find((i) => sig(i) === sig(line));
     if (existing) {
       existing.quantity += 1;
       return;
     }
-    state.items.push({ menuItemId, name, price, options, notes, quantity: 1 });
+    state.items.push(line);
   }
 
   function setQuantity(line, quantity) {
-    const signature = optionSignature(line.options);
     if (quantity <= 0) return removeLine(line);
-    const target = state.items.find(
-      (i) => i.menuItemId === line.menuItemId && optionSignature(i.options) === signature
-    );
+    const target = state.items.find((i) => sig(i) === sig(line));
     if (target) target.quantity = quantity;
   }
 
   function removeLine(line) {
-    const signature = optionSignature(line.options);
-    state.items = state.items.filter(
-      (i) => !(i.menuItemId === line.menuItemId && optionSignature(i.options) === signature)
-    );
+    state.items = state.items.filter((i) => sig(i) !== sig(line));
   }
 
   function clear() {
@@ -106,19 +112,27 @@ export function useCartStore() {
     const removed = [];
     state.items = state.items.filter((line) => {
       const match = live.get(line.menuItemId);
-      if (!match || match.available === false) {
-        removed.push(line.name);
-        return false;
-      }
-      return true;
+      const offered = new Set(
+        (match?.optionGroups || []).flatMap((g) => g.choices.filter((c) => c.available !== false).map((c) => c.id))
+      );
+      const ok = Boolean(match) && match.available !== false && !match.soldOut
+        && (line.choiceIds || []).every((id) => offered.has(id));
+      if (!ok) removed.push(line.name);
+      return ok;
     });
     return { removed };
+  }
+
+  function consumeResetNotice() {
+    const was = resetNotice;
+    resetNotice = false;
+    return was;
   }
 
   storeInstance = {
     state, itemCount, total,
     addLine, setQuantity, removeLine, clear,
-    beginCheckout, consumePendingCheckout, reconcileWithMenu,
+    beginCheckout, consumePendingCheckout, reconcileWithMenu, consumeResetNotice,
   };
   return storeInstance;
 }

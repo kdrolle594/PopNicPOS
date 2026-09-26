@@ -7,9 +7,9 @@ async function freshStore() {
   return mod.useCartStore();
 }
 
-const MARGHERITA = { menuItemId: 1, name: 'Margherita', price: 12, options: {} };
-const PEPPERONI_L = { menuItemId: 2, name: 'Pepperoni', price: 15, options: { pizzaSize: 'large' } };
-const PEPPERONI_M = { menuItemId: 2, name: 'Pepperoni', price: 12, options: { pizzaSize: 'medium' } };
+const MARGHERITA = { menuItemId: 1, name: 'Margherita', price: 12, choiceIds: [] };
+const PEPPERONI_L = { menuItemId: 2, name: 'Pepperoni', price: 15, choiceIds: [13] };
+const PEPPERONI_M = { menuItemId: 2, name: 'Pepperoni', price: 12, choiceIds: [12] };
 
 beforeEach(() => {
   globalThis.__restoreStorage();
@@ -31,10 +31,10 @@ describe('line identity', () => {
     expect(cart.state.items).toHaveLength(2);
   });
 
-  it('treats topping order as irrelevant', async () => {
+  it('treats choice order as irrelevant', async () => {
     const cart = await freshStore();
-    cart.addLine({ ...MARGHERITA, options: { pizzaToppings: ['ham', 'bacon'] } });
-    cart.addLine({ ...MARGHERITA, options: { pizzaToppings: ['bacon', 'ham'] } });
+    cart.addLine({ ...MARGHERITA, choiceIds: [22, 21] });
+    cart.addLine({ ...MARGHERITA, choiceIds: [21, 22] });
     expect(cart.state.items).toHaveLength(1);
   });
 });
@@ -117,6 +117,42 @@ describe('reconcileWithMenu', () => {
     const { removed } = cart.reconcileWithMenu([{ id: 1, available: true }, { id: 2, available: false }]);
     expect(cart.state.items).toHaveLength(1);
     expect(removed).toEqual(['Pepperoni']);
+  });
+});
+
+describe('reconcileWithMenu — options', () => {
+  const menu = [
+    { id: 1, name: 'Margherita', available: true, optionGroups: [] },
+    { id: 2, name: 'Pepperoni', available: true, optionGroups: [
+      { id: 1, choices: [{ id: 12, available: true }] },
+    ] },
+  ];
+
+  it('drops a line whose choice is no longer offered', async () => {
+    const cart = await freshStore();
+    cart.addLine(PEPPERONI_M);
+    cart.addLine(PEPPERONI_L);
+    const { removed } = cart.reconcileWithMenu(menu);
+    expect(cart.state.items.map((i) => i.choiceIds)).toEqual([[12]]);
+    expect(removed).toEqual(['Pepperoni']);
+  });
+
+  it('drops a sold-out item', async () => {
+    const cart = await freshStore();
+    cart.addLine(MARGHERITA);
+    const { removed } = cart.reconcileWithMenu([{ ...menu[0], soldOut: true }]);
+    expect(removed).toEqual(['Margherita']);
+  });
+});
+
+describe('legacy cart', () => {
+  it('drops a v1 cart once and reports it', async () => {
+    sessionStorage.setItem('popnic.cart.v1', JSON.stringify({ items: [{ menuItemId: 1, options: {} }] }));
+    const cart = await freshStore();
+    expect(cart.state.items).toEqual([]);
+    expect(sessionStorage.getItem('popnic.cart.v1')).toBeNull();
+    expect(cart.consumeResetNotice()).toBe(true);
+    expect(cart.consumeResetNotice()).toBe(false);
   });
 });
 

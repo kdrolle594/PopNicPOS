@@ -1,5 +1,6 @@
 <script setup>
 import { inject, ref, computed, watch, nextTick } from 'vue';
+import { lineSignature } from '../../../shared/menuOptions.js';
 import { useCartStore } from '../../store/useCartStore.js';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import UiButton from '../ui/UiButton.vue';
@@ -41,7 +42,7 @@ function formatPrice(amount) {
 }
 
 function lineKey(line) {
-  return line.menuItemId + '|' + JSON.stringify(line.options);
+  return lineSignature(line.menuItemId, line.choiceIds || []);
 }
 </script>
 
