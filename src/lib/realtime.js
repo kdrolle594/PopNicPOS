@@ -78,6 +78,24 @@ export async function subscribeMenu(onChange) {
 
 // After login, fetch a token with the user's full rights without dropping
 // existing channel subscriptions.
+//
+// A guest connection authenticates with a server-assigned `guest-*` clientId.
+// Ably rejects an in-place upgrade of that connection to an authenticated
+// user's token (error 40102: clientId mismatch), so for a guest client we
+// close it and drop the cached client/promise instead, and the next
+// getClient() call creates a fresh one authenticated as the signed-in user.
+// This is a safety net only — in practice login is a full-page Auth0
+// redirect, which already tears down and recreates this module, so any
+// subscribers on the old guest client are not expected to still be around
+// to re-subscribe.
 export async function refreshRealtimeAuth() {
-  if (realtimeClient) await realtimeClient.auth.authorize();
+  if (!realtimeClient) return;
+  if (realtimeClient.auth.clientId?.startsWith('guest-')) {
+    const stale = realtimeClient;
+    realtimeClient = null;
+    clientPromise = null;
+    stale.close();
+    return;
+  }
+  await realtimeClient.auth.authorize();
 }
