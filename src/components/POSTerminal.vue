@@ -1,8 +1,13 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { usePosStore } from '../store/usePosStore';
+import { subscribeMenu } from '../lib/realtime.js';
+import {
+  needsCustomization, defaultSelection, validateSelection, linePrice, lineLabel,
+  pruneSelection, toggleChoice, groupHint, formatPriceDelta, lineSignature,
+} from '../../shared/menuOptions.js';
 
-const { state, addOrder, updateLoyaltyCustomer, getTier } = usePosStore();
+const { state, addOrder, updateLoyaltyCustomer, getTier, refreshMenu } = usePosStore();
 
 const currentOrder = ref([]);
 const tableNumber = ref(1);
@@ -14,67 +19,56 @@ const selectedCustomerId = ref('');
 const customerSearch = ref('');
 const customizationOpen = ref(false);
 const placingOrder = ref(false);
-const pendingMenuItem = ref(null);
 const pendingUsePoints = ref(false);
-const selectedPizzaSize = ref('medium');
-const selectedPizzaStyle = ref('custom');
-const selectedPizzaToppings = ref([]);
-const selectedWingFlavor = ref('buffalo');
-const selectedSodaFlavor = ref('coke cola');
 
-const pizzaSizeOptions = [
-  { value: 'personal pan', label: 'Personal Pan', priceDelta: -2 },
-  { value: 'medium', label: 'Medium', priceDelta: 0 },
-  { value: 'large', label: 'Large', priceDelta: 3 },
-];
+const pendingMenuItemId = ref(null);
+// Read through the store so a live refresh updates the open modal.
+const pendingMenuItem = computed(
+  () => state.menuItems.find((i) => i.id === pendingMenuItemId.value) || null
+);
+const selectedChoiceIds = ref([]);
+const customizeNotice = ref('');
 
-const pizzaToppingOptions = [
-  { value: 'pepperoni', label: 'Pepperoni' },
-  { value: 'ham', label: 'Ham' },
-  { value: 'sausage', label: 'Sausage' },
-  { value: 'bacon', label: 'Bacon' },
-  { value: 'pineapple', label: 'Pineapple' },
-  { value: 'mushrooms', label: 'Mushrooms' },
-  { value: 'onions', label: 'Onions' },
-  { value: 'bell peppers', label: 'Bell Peppers' },
-  { value: 'black olives', label: 'Black Olives' },
-  { value: 'tomatoes', label: 'Tomatoes' },
-  { value: 'extra cheese', label: 'Extra Cheese' },
-];
+const customizeValidation = computed(() =>
+  pendingMenuItem.value ? validateSelection(pendingMenuItem.value, selectedChoiceIds.value) : { ok: false, errors: [] }
+);
 
-const pizzaPresetStyles = [
-  {
-    value: 'hawaiian',
-    label: 'Hawaiian',
-    toppings: ['ham', 'pineapple'],
-  },
-  {
-    value: 'meat lovers',
-    label: 'Meat Lovers',
-    toppings: ['pepperoni', 'sausage', 'bacon', 'ham'],
-  },
-  {
-    value: 'veggie',
-    label: 'Veggie',
-    toppings: ['mushrooms', 'onions', 'bell peppers', 'black olives', 'tomatoes'],
-  },
-];
+watch(pendingMenuItem, (next, prev) => {
+  if (!next || !prev || next.id !== prev.id) return;
+  const { choiceIds, dropped } = pruneSelection(next, selectedChoiceIds.value, prev);
+  if (dropped.length) {
+    selectedChoiceIds.value = choiceIds;
+    customizeNotice.value = `${dropped.join(', ')} just sold out.`;
+  }
+});
 
-const wingFlavorOptions = [
-  { value: 'buffalo', label: 'Buffalo' },
-  { value: 'honey mustard', label: 'Honey Mustard' },
-  { value: 'original', label: 'Original' },
-  { value: 'bbq', label: 'BBQ' },
-  { value: 'sweet and spicy', label: 'Sweet and Spicy' },
-];
+function groupErrorFor(group) {
+  return customizeValidation.value.errors.find((e) => e.groupId === group.id)?.message || '';
+}
 
-const sodaFlavorOptions = [
-  { value: 'root beer', label: 'Root Beer' },
-  { value: 'sprite', label: 'Sprite' },
-  { value: 'coke cola', label: 'Coke Cola' },
-  { value: 'orange soda', label: 'Orange Soda' },
-  { value: 'grape soda', label: 'Grape Soda' },
-];
+function pickChoice(choiceId) {
+  selectedChoiceIds.value = toggleChoice(pendingMenuItem.value, selectedChoiceIds.value, choiceId);
+}
+
+function posLineKey(line) {
+  return `${line.paidWithPoints ? 'pts' : 'cash'}|${lineSignature(line.menuItemId, line.choiceIds || [])}`;
+}
+
+let unsubscribeMenu = null;
+let disposed = false;
+onMounted(async () => {
+  try {
+    const unsubscribe = await subscribeMenu(() => refreshMenu());
+    if (disposed) unsubscribe();
+    else unsubscribeMenu = unsubscribe;
+  } catch (err) {
+    console.warn('Live menu updates unavailable:', err);
+  }
+});
+onUnmounted(() => {
+  disposed = true;
+  if (unsubscribeMenu) unsubscribeMenu();
+});
 
 const categories = computed(() => ['All', ...new Set(state.menuItems.map((item) => item.category))]);
 
@@ -106,210 +100,66 @@ const totalPointsToRedeem = computed(() =>
   }, 0)
 );
 
-function isPizzaItem(menuItem) {
-  const name = (menuItem.name || '').toLowerCase();
-  const category = (menuItem.category || '').toLowerCase();
-  return name.includes('pizza') || category.includes('pizza');
-}
-
-function isWingsItem(menuItem) {
-  const name = (menuItem.name || '').toLowerCase();
-  return name.includes('wings');
-}
-
-function isSodaItem(menuItem) {
-  const name = (menuItem.name || '').toLowerCase();
-  return (
-    name.includes('soda') ||
-    name.includes('cola') ||
-    name.includes('coke') ||
-    name.includes('sprite') ||
-    name.includes('root beer')
-  );
-}
-
-function optionSignature(options = {}) {
-  return JSON.stringify({
-    pizzaSize: options.pizzaSize || null,
-    pizzaStyle: options.pizzaStyle || null,
-    pizzaToppings: (options.pizzaToppings || []).slice().sort(),
-    wingFlavor: options.wingFlavor || null,
-    sodaFlavor: options.sodaFlavor || null,
-  });
-}
-
-function calculateCustomPrice(menuItem, usePoints, options = {}) {
-  if (usePoints) return 0;
-
-  let price = Number(menuItem.price || 0);
-  if (options.pizzaSize) {
-    const sizeOption = pizzaSizeOptions.find((s) => s.value === options.pizzaSize);
-    price += sizeOption?.priceDelta || 0;
-  }
-
-  return Math.max(0, Number(price.toFixed(2)));
-}
-
-function buildDisplayName(menuItem, options = {}) {
-  const details = [];
-  if (options.pizzaSize) details.push(options.pizzaSize);
-  if (options.pizzaStyle && options.pizzaStyle !== 'custom') details.push(options.pizzaStyle);
-  if (options.pizzaToppings?.length) details.push(`${options.pizzaToppings.length} toppings`);
-  if (options.wingFlavor) details.push(options.wingFlavor);
-  if (options.sodaFlavor) details.push(options.sodaFlavor);
-  if (!details.length) return menuItem.name;
-  return `${menuItem.name} (${details.join(', ')})`;
-}
-
-function formatToppingLabel(value) {
-  return value
-    .split(' ')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function applyPizzaPreset(styleValue) {
-  if (styleValue === 'custom') {
-    selectedPizzaStyle.value = 'custom';
-    return;
-  }
-
-  const preset = pizzaPresetStyles.find((style) => style.value === styleValue);
-  if (!preset) return;
-
-  selectedPizzaStyle.value = preset.value;
-  selectedPizzaToppings.value = [...preset.toppings];
-}
-
-function togglePizzaTopping(toppingValue) {
-  const exists = selectedPizzaToppings.value.includes(toppingValue);
-  if (exists) {
-    selectedPizzaToppings.value = selectedPizzaToppings.value.filter((value) => value !== toppingValue);
-  } else {
-    selectedPizzaToppings.value = [...selectedPizzaToppings.value, toppingValue];
-  }
-
-  selectedPizzaStyle.value = 'custom';
-}
-
-function addConfiguredToOrder(menuItem, usePoints = false, options = {}) {
-  if (!menuItem.available) return;
+function addConfiguredToOrder(menuItem, usePoints = false, choiceIds = []) {
+  if (!menuItem.available || menuItem.soldOut) return;
 
   if (usePoints) {
     if (!selectedCustomer.value) {
       alert('Select a loyalty customer first.');
       return;
     }
-
     if (!menuItem.pointsValue || selectedCustomer.value.points < menuItem.pointsValue) {
       alert('Not enough points for this item.');
       return;
     }
   }
 
-  const signature = optionSignature(options);
-
-  const existing = currentOrder.value.find(
-    (item) =>
-      item.menuItemId === menuItem.id &&
-      Boolean(item.paidWithPoints) === Boolean(usePoints) &&
-      optionSignature(item.options) === signature
-  );
-
+  const line = {
+    menuItemId: menuItem.id,
+    name: lineLabel(menuItem, choiceIds),
+    quantity: 1,
+    price: usePoints ? 0 : linePrice(menuItem, choiceIds),
+    paidWithPoints: usePoints,
+    choiceIds: [...choiceIds],
+  };
+  const existing = currentOrder.value.find((item) => posLineKey(item) === posLineKey(line));
   if (existing) {
     existing.quantity += 1;
     currentOrder.value = [...currentOrder.value];
     return;
   }
-
-  currentOrder.value = [
-    ...currentOrder.value,
-    {
-      menuItemId: menuItem.id,
-      name: buildDisplayName(menuItem, options),
-      quantity: 1,
-      price: calculateCustomPrice(menuItem, usePoints, options),
-      paidWithPoints: usePoints,
-      options,
-      notes:
-        options.pizzaSize || options.pizzaStyle || options.pizzaToppings?.length || options.wingFlavor || options.sodaFlavor
-          ? [
-              options.pizzaSize ? `Size: ${options.pizzaSize}` : null,
-              options.pizzaStyle ? `Style: ${options.pizzaStyle}` : null,
-              options.pizzaToppings?.length ? `Toppings: ${options.pizzaToppings.map(formatToppingLabel).join(', ')}` : null,
-              options.wingFlavor ? `Wings Flavor: ${options.wingFlavor}` : null,
-              options.sodaFlavor ? `Soda Flavor: ${options.sodaFlavor}` : null,
-            ]
-              .filter(Boolean)
-              .join(' • ')
-          : undefined,
-    },
-  ];
+  currentOrder.value = [...currentOrder.value, line];
 }
 
 function addToOrder(menuItem, usePoints = false) {
-  const needsSize = isPizzaItem(menuItem);
-  const needsFlavor = isWingsItem(menuItem);
-  const needsSodaFlavor = isSodaItem(menuItem);
-
-  if (!needsSize && !needsFlavor && !needsSodaFlavor) {
+  if (!needsCustomization(menuItem)) {
     addConfiguredToOrder(menuItem, usePoints);
     return;
   }
-
-  pendingMenuItem.value = menuItem;
+  pendingMenuItemId.value = menuItem.id;
   pendingUsePoints.value = usePoints;
-  selectedPizzaSize.value = 'medium';
-  selectedPizzaStyle.value = 'custom';
-  selectedPizzaToppings.value = [];
-  selectedWingFlavor.value = 'buffalo';
-  selectedSodaFlavor.value = 'coke cola';
+  selectedChoiceIds.value = defaultSelection(menuItem);
+  customizeNotice.value = '';
   customizationOpen.value = true;
 }
 
 function confirmCustomization() {
-  if (!pendingMenuItem.value) return;
-
-  const options = {};
-  if (isPizzaItem(pendingMenuItem.value)) {
-    options.pizzaSize = selectedPizzaSize.value;
-    options.pizzaStyle = selectedPizzaStyle.value;
-    options.pizzaToppings = [...selectedPizzaToppings.value].sort();
-  }
-  if (isWingsItem(pendingMenuItem.value)) options.wingFlavor = selectedWingFlavor.value;
-  if (isSodaItem(pendingMenuItem.value)) options.sodaFlavor = selectedSodaFlavor.value;
-
-  addConfiguredToOrder(pendingMenuItem.value, pendingUsePoints.value, options);
+  if (!pendingMenuItem.value || !customizeValidation.value.ok) return;
+  addConfiguredToOrder(pendingMenuItem.value, pendingUsePoints.value, selectedChoiceIds.value);
   customizationOpen.value = false;
-  pendingMenuItem.value = null;
+  pendingMenuItemId.value = null;
 }
 
 function updateQuantity(orderItem, delta) {
-  const updated = currentOrder.value
-    .map((item) => {
-      if (
-        item.menuItemId !== orderItem.menuItemId ||
-        Boolean(item.paidWithPoints) !== Boolean(orderItem.paidWithPoints) ||
-        optionSignature(item.options) !== optionSignature(orderItem.options)
-      ) {
-        return item;
-      }
-      return { ...item, quantity: Math.max(1, item.quantity + delta) };
-    })
-    .filter((item) => item.quantity > 0);
-
-  currentOrder.value = updated;
+  const key = posLineKey(orderItem);
+  currentOrder.value = currentOrder.value.map((item) =>
+    posLineKey(item) === key ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item
+  );
 }
 
 function removeItem(orderItem) {
-  currentOrder.value = currentOrder.value.filter(
-    (item) =>
-      !(
-        item.menuItemId === orderItem.menuItemId &&
-        Boolean(item.paidWithPoints) === Boolean(orderItem.paidWithPoints) &&
-        optionSignature(item.options) === optionSignature(orderItem.options)
-      )
-  );
+  const key = posLineKey(orderItem);
+  currentOrder.value = currentOrder.value.filter((item) => posLineKey(item) !== key);
 }
 
 function selectCustomer(customer) {
@@ -341,7 +191,14 @@ async function placeOrder() {
   let created;
   try {
     created = await addOrder({
-      items: currentOrder.value,
+      items: currentOrder.value.map((line) => ({
+        menuItemId: line.menuItemId,
+        name: line.name,
+        quantity: line.quantity,
+        price: line.price,
+        paidWithPoints: line.paidWithPoints,
+        choiceIds: line.choiceIds || [],
+      })),
       total: total.value,
       status: 'pending',
       tableNumber: Number(tableNumber.value),
@@ -358,7 +215,8 @@ async function placeOrder() {
   }
 
   if (!created) {
-    alert('Failed to place order. Please try again.');
+    alert(state.orderError || 'Failed to place order. Please try again.');
+    await refreshMenu();
     return;
   }
 
@@ -400,15 +258,16 @@ async function placeOrder() {
             <div class="flex gap-1">
               <button
                 class="flex-1 px-2 py-1 rounded border text-sm"
-                :class="item.available ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'"
-                :disabled="!item.available"
+                :class="item.available && !item.soldOut ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'"
+                :disabled="!item.available || item.soldOut"
                 @click="addToOrder(item, false)"
               >
-                Add
+                {{ item.soldOut ? 'Sold out' : 'Add' }}
               </button>
               <button
                 v-if="item.pointsValue"
                 class="px-2 py-1 rounded border text-sm bg-amber-50 border-amber-300"
+                :disabled="item.soldOut"
                 @click="addToOrder(item, true)"
               >
                 {{ item.pointsValue }} pts
@@ -457,7 +316,7 @@ async function placeOrder() {
         <div class="space-y-2 max-h-52 overflow-y-auto">
           <div
             v-for="item in currentOrder"
-            :key="`${item.menuItemId}-${item.paidWithPoints ? 'pts' : 'cash'}-${optionSignature(item.options)}`"
+            :key="posLineKey(item)"
             class="border rounded p-2"
           >
             <div class="flex justify-between gap-2">
@@ -465,7 +324,6 @@ async function placeOrder() {
               <button class="text-xs text-red-600" @click="removeItem(item)">Remove</button>
             </div>
             <p class="text-xs text-gray-500">{{ item.paidWithPoints ? 'Paid with points' : '$' + item.price.toFixed(2) }}</p>
-            <p v-if="item.notes" class="text-xs text-gray-500">{{ item.notes }}</p>
             <div class="flex items-center gap-2 mt-1">
               <button class="px-2 py-1 border rounded" @click="updateQuantity(item, -1)">-</button>
               <span class="text-sm">{{ item.quantity }}</span>
@@ -504,80 +362,48 @@ async function placeOrder() {
         <h2 class="text-lg font-semibold p-4 border-b">Customize {{ pendingMenuItem?.name }}</h2>
 
         <div class="flex-1 overflow-y-auto p-4 space-y-4">
-        <div v-if="pendingMenuItem && isPizzaItem(pendingMenuItem)">
-          <label class="block text-sm font-medium mb-2">Pizza Size</label>
-          <div class="space-y-2">
-            <label v-for="size in pizzaSizeOptions" :key="size.value" class="flex items-center justify-between border rounded px-3 py-2 cursor-pointer">
-              <span>{{ size.label }}</span>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-500" v-if="size.priceDelta !== 0">
-                  {{ size.priceDelta > 0 ? `+$${size.priceDelta.toFixed(2)}` : `-$${Math.abs(size.priceDelta).toFixed(2)}` }}
+          <p v-if="pendingMenuItem?.soldOut" class="text-sm rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2">
+            {{ pendingMenuItem.name }} just sold out.
+          </p>
+          <p v-else-if="customizeNotice" class="text-sm rounded border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2">
+            {{ customizeNotice }}
+          </p>
+
+          <div v-for="group in pendingMenuItem?.optionGroups || []" :key="group.id">
+            <div class="flex items-baseline justify-between mb-2">
+              <p class="text-sm font-medium">{{ group.name }}</p>
+              <span class="text-xs text-gray-500">{{ groupHint(group) }}</span>
+            </div>
+            <div :class="group.maxSelect === 1 ? 'space-y-2' : 'grid grid-cols-2 gap-2'">
+              <label
+                v-for="choice in group.choices"
+                :key="choice.id"
+                class="flex items-center justify-between gap-2 border rounded px-3 py-2 text-sm cursor-pointer"
+                :class="selectedChoiceIds.includes(choice.id) ? 'bg-blue-50 border-blue-300' : ''"
+              >
+                <span>{{ choice.name }}</span>
+                <span class="flex items-center gap-2">
+                  <span v-if="choice.priceDelta" class="text-xs text-gray-500">{{ formatPriceDelta(choice.priceDelta) }}</span>
+                  <input
+                    :type="group.maxSelect === 1 ? 'radio' : 'checkbox'"
+                    :name="`pos-group-${group.id}`"
+                    :checked="selectedChoiceIds.includes(choice.id)"
+                    @click.prevent="pickChoice(choice.id)"
+                  />
                 </span>
-                <input v-model="selectedPizzaSize" type="radio" :value="size.value" />
-              </div>
-            </label>
+              </label>
+            </div>
+            <p v-if="groupErrorFor(group)" class="text-xs text-red-600 mt-1">{{ groupErrorFor(group) }}</p>
           </div>
-
-          <label class="block text-sm font-medium mt-4 mb-2">Preset Style</label>
-          <div class="grid grid-cols-2 gap-2">
-            <button
-              class="px-3 py-2 border rounded text-sm"
-              :class="selectedPizzaStyle === 'custom' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''"
-              @click="applyPizzaPreset('custom')"
-            >
-              Custom
-            </button>
-            <button
-              v-for="style in pizzaPresetStyles"
-              :key="style.value"
-              class="px-3 py-2 border rounded text-sm"
-              :class="selectedPizzaStyle === style.value ? 'bg-blue-50 border-blue-300 text-blue-700' : ''"
-              @click="applyPizzaPreset(style.value)"
-            >
-              {{ style.label }}
-            </button>
-          </div>
-
-          <label class="block text-sm font-medium mt-4 mb-2">Toppings</label>
-          <div class="grid grid-cols-2 gap-2">
-            <label
-              v-for="topping in pizzaToppingOptions"
-              :key="topping.value"
-              class="flex items-center gap-2 border rounded px-3 py-2 text-sm cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                :checked="selectedPizzaToppings.includes(topping.value)"
-                @change="togglePizzaTopping(topping.value)"
-              />
-              {{ topping.label }}
-            </label>
-          </div>
-        </div>
-
-        <div v-if="pendingMenuItem && isWingsItem(pendingMenuItem)">
-          <label class="block text-sm font-medium mb-2">Wings Flavor</label>
-          <select v-model="selectedWingFlavor" class="w-full border rounded px-3 py-2 bg-white">
-            <option v-for="flavor in wingFlavorOptions" :key="flavor.value" :value="flavor.value">
-              {{ flavor.label }}
-            </option>
-          </select>
-        </div>
-
-        <div v-if="pendingMenuItem && isSodaItem(pendingMenuItem)">
-          <label class="block text-sm font-medium mb-2">Soda Flavor</label>
-          <select v-model="selectedSodaFlavor" class="w-full border rounded px-3 py-2 bg-white">
-            <option v-for="flavor in sodaFlavorOptions" :key="flavor.value" :value="flavor.value">
-              {{ flavor.label }}
-            </option>
-          </select>
-        </div>
-
         </div>
 
         <div class="flex justify-end gap-2 p-4 border-t">
           <button class="px-3 py-2 border rounded" @click="customizationOpen = false">Cancel</button>
-          <button class="px-3 py-2 bg-blue-600 text-white rounded" @click="confirmCustomization">Add to Order</button>
+          <button
+            class="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60"
+            :disabled="!customizeValidation.ok || pendingMenuItem?.soldOut"
+            @click="confirmCustomization"
+          >Add to Order</button>
         </div>
       </div>
     </div>
