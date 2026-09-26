@@ -50,6 +50,42 @@ function pickChoice(choiceId) {
   selectedChoiceIds.value = toggleChoice(pendingMenuItem.value, selectedChoiceIds.value, choiceId);
 }
 
+// Pickers only ever offer choices that are switched on right now (spec §1) —
+// managers/admins can otherwise see everything the menu API returns.
+function offeredChoices(group) {
+  return group.choices.filter((c) => c.available !== false);
+}
+
+function groupSelectedCount(group) {
+  const ids = new Set(group.choices.map((c) => c.id));
+  return selectedChoiceIds.value.filter((id) => ids.has(id)).length;
+}
+
+// Once a multi-select group hits its cap, the remaining unselected choices
+// render disabled so the limit is visible (spec §7.2).
+function isChoiceDisabled(group, choice) {
+  return group.maxSelect !== 1
+    && !selectedChoiceIds.value.includes(choice.id)
+    && groupSelectedCount(group) >= group.maxSelect;
+}
+
+// Small roving arrow-key handler for a single-choice (radio) group: moves
+// focus to the next/previous available choice and selects it.
+function onRadioKeydown(event, group) {
+  const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight';
+  const backward = event.key === 'ArrowUp' || event.key === 'ArrowLeft';
+  if (!forward && !backward) return;
+  event.preventDefault();
+  const choices = offeredChoices(group);
+  const buttons = Array.from(event.currentTarget.querySelectorAll('[role="radio"]'));
+  if (!buttons.length) return;
+  const currentIndex = buttons.indexOf(document.activeElement);
+  const step = forward ? 1 : -1;
+  const nextIndex = ((currentIndex === -1 ? 0 : currentIndex) + step + buttons.length) % buttons.length;
+  buttons[nextIndex].focus();
+  pickChoice(choices[nextIndex].id);
+}
+
 function posLineKey(line) {
   return `${line.paidWithPoints ? 'pts' : 'cash'}|${lineSignature(line.menuItemId, line.choiceIds || [])}`;
 }
@@ -374,24 +410,42 @@ async function placeOrder() {
               <p class="text-sm font-medium">{{ group.name }}</p>
               <span class="text-xs text-gray-500">{{ groupHint(group) }}</span>
             </div>
-            <div :class="group.maxSelect === 1 ? 'space-y-2' : 'grid grid-cols-2 gap-2'">
-              <label
-                v-for="choice in group.choices"
+            <div
+              :class="group.maxSelect === 1 ? 'space-y-2' : 'grid grid-cols-2 gap-2'"
+              :role="group.maxSelect === 1 ? 'radiogroup' : 'group'"
+              :aria-label="group.name"
+              @keydown="group.maxSelect === 1 ? onRadioKeydown($event, group) : null"
+            >
+              <button
+                v-for="choice in offeredChoices(group)"
                 :key="choice.id"
-                class="flex items-center justify-between gap-2 border rounded px-3 py-2 text-sm cursor-pointer"
-                :class="selectedChoiceIds.includes(choice.id) ? 'bg-blue-50 border-blue-300' : ''"
+                type="button"
+                :role="group.maxSelect === 1 ? 'radio' : 'checkbox'"
+                :aria-checked="selectedChoiceIds.includes(choice.id)"
+                :disabled="group.maxSelect !== 1 && isChoiceDisabled(group, choice)"
+                :class="[
+                  'flex items-center justify-between gap-2 border rounded px-3 py-2 text-sm text-left w-full cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+                  selectedChoiceIds.includes(choice.id) ? 'bg-blue-50 border-blue-300' : '',
+                ]"
+                @click="pickChoice(choice.id)"
               >
                 <span>{{ choice.name }}</span>
                 <span class="flex items-center gap-2">
                   <span v-if="choice.priceDelta" class="text-xs text-gray-500">{{ formatPriceDelta(choice.priceDelta) }}</span>
-                  <input
-                    :type="group.maxSelect === 1 ? 'radio' : 'checkbox'"
-                    :name="`pos-group-${group.id}`"
-                    :checked="selectedChoiceIds.includes(choice.id)"
-                    @click.prevent="pickChoice(choice.id)"
-                  />
+                  <span
+                    v-if="group.maxSelect === 1"
+                    aria-hidden="true"
+                    class="inline-block w-4 h-4 rounded-full border-2"
+                    :class="selectedChoiceIds.includes(choice.id) ? 'border-blue-600 bg-blue-600 ring-2 ring-inset ring-white' : 'border-gray-400'"
+                  ></span>
+                  <span
+                    v-else
+                    aria-hidden="true"
+                    class="inline-flex items-center justify-center w-4 h-4 rounded border-2 text-white text-[10px] leading-none"
+                    :class="selectedChoiceIds.includes(choice.id) ? 'border-blue-600 bg-blue-600' : 'border-gray-400'"
+                  >{{ selectedChoiceIds.includes(choice.id) ? '✓' : '' }}</span>
                 </span>
-              </label>
+              </button>
             </div>
             <p v-if="groupErrorFor(group)" class="text-xs text-red-600 mt-1">{{ groupErrorFor(group) }}</p>
           </div>
