@@ -50,6 +50,8 @@ export function usePosStore() {
     orders: [],
     loyaltyCustomers: [],
     loading: true,
+    optionGroups: [],
+    orderError: '',
   });
 
   // ── Public (guest) loader ──────────────────────────────────────────────────
@@ -98,6 +100,54 @@ export function usePosStore() {
     if (orders.status           === 'fulfilled') state.orders           = orders.value;
     if (loyaltyCustomers.status === 'fulfilled') state.loyaltyCustomers = loyaltyCustomers.value;
     state.loading = false;
+  }
+
+  // ── Live menu refresh ──────────────────────────────────────────────────────
+  // Several menuChanged events close together trigger one request.
+
+  let refreshTimer = null;
+  let refreshWaiters = [];
+
+  function refreshMenu() {
+    return new Promise((resolve) => {
+      refreshWaiters.push(resolve);
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(async () => {
+        const waiters = refreshWaiters;
+        refreshWaiters = [];
+        try {
+          state.menuItems = await api('/menu-items');
+        } catch (err) {
+          console.error('Failed to refresh menu:', err);
+        }
+        waiters.forEach((done) => done());
+      }, 300);
+    });
+  }
+
+  // ── Option groups (manager) ────────────────────────────────────────────────
+  // These throw so the editor can show the server's message.
+
+  async function loadOptionGroups() {
+    state.optionGroups = await api('/option-groups');
+  }
+
+  async function saveOptionGroup(group) {
+    const saved = group.id
+      ? await api(`/option-groups/${group.id}`, { method: 'PUT', body: group })
+      : await api('/option-groups', { method: 'POST', body: group });
+    await loadOptionGroups();
+    return saved;
+  }
+
+  async function deleteOptionGroup(id) {
+    await api(`/option-groups/${id}`, { method: 'DELETE' });
+    state.optionGroups = state.optionGroups.filter((g) => g.id !== id);
+  }
+
+  async function setChoiceEnabled(choiceId, enabled) {
+    await api(`/option-choices/${choiceId}`, { method: 'PATCH', body: { enabled } });
+    await loadOptionGroups();
   }
 
   // ── Menu Items ─────────────────────────────────────────────────────────────
@@ -165,6 +215,7 @@ export function usePosStore() {
   // ── Orders ─────────────────────────────────────────────────────────────────
 
   async function addOrder(order) {
+    state.orderError = '';
     try {
       const created = await api('/orders', { method: 'POST', body: order });
       state.orders = [...state.orders, created];
@@ -175,6 +226,7 @@ export function usePosStore() {
       return created;
     } catch (err) {
       console.error('Failed to place order:', err);
+      state.orderError = err.message;
       return null;
     }
   }
@@ -278,6 +330,11 @@ export function usePosStore() {
     deleteLoyaltyCustomer,
     fetchMe,
     updateMe,
+    refreshMenu,
+    loadOptionGroups,
+    saveOptionGroup,
+    deleteOptionGroup,
+    setChoiceEnabled,
   };
 
   return storeInstance;

@@ -6,11 +6,11 @@ let clientPromise = null;
 
 async function fetchTokenRequest() {
   const auth = useAuthStore();
-  const token = await auth.getToken();
+  const headers = {};
+  // Guests get a subscribe-only menu token; signed-in users send their JWT.
+  if (auth.isAuthenticated.value) headers.Authorization = `Bearer ${await auth.getToken()}`;
   const base = import.meta.env.VITE_API_URL || '';
-  const res = await fetch(`${base}/api/realtime/token`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetch(`${base}/api/realtime/token`, { headers });
   if (!res.ok) throw new Error(`Realtime token request failed: ${res.status}`);
   return res.json();
 }
@@ -66,4 +66,18 @@ export async function publishDriverLocation(orderId, payload) {
   const client = await getClient();
   const channel = client.channels.get(`delivery:${orderId}`);
   return channel.publish('driverLocation', payload);
+}
+
+export async function subscribeMenu(onChange) {
+  const client = await getClient();
+  const channel = client.channels.get('menu');
+  const listener = () => onChange();
+  channel.subscribe('menuChanged', listener);
+  return () => channel.unsubscribe('menuChanged', listener);
+}
+
+// After login, fetch a token with the user's full rights without dropping
+// existing channel subscriptions.
+export async function refreshRealtimeAuth() {
+  if (realtimeClient) await realtimeClient.auth.authorize();
 }

@@ -4,6 +4,7 @@ import { useAuth0 } from '@auth0/auth0-vue';
 import { useAuthStore } from './store/useAuthStore';
 import { usePosStore } from './store/usePosStore.js';
 import { useCartStore } from './store/useCartStore.js';
+import { refreshRealtimeAuth } from './lib/realtime.js';
 import StorefrontShell from './components/shell/StorefrontShell.vue';
 import ConsoleShell from './components/shell/ConsoleShell.vue';
 import Dashboard from './components/Dashboard.vue';
@@ -68,6 +69,7 @@ watch(
   async (authenticated) => {
     if (authenticated && !auth.state.role) {
       await auth.fetchRole();
+      refreshRealtimeAuth().catch((err) => console.warn('Realtime auth refresh failed:', err));
       currentView.value = auth.defaultView();
       // Load full POS data (menu items + inventory/orders/customers) after role resolves.
       posStore.loadAll();
