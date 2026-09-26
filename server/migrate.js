@@ -213,6 +213,30 @@ async function run() {
     `);
     console.log('✔  Option tables ready');
 
+    // 8. order_item.line_name must be wide enough for a fully customized
+    // label, e.g. "Build Your Own Pizza (Large, Pepperoni, Ham, … Extra
+    // Cheese)" (~140 chars).
+    const [lineNameCols] = await conn.query(`
+      SELECT CHARACTER_MAXIMUM_LENGTH, DATA_TYPE, IS_NULLABLE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME   = 'order_item'
+        AND COLUMN_NAME  = 'line_name'
+    `);
+    if (lineNameCols.length === 0) {
+      console.warn('order_item.line_name column not found — skipping line_name width migration');
+    } else {
+      const { CHARACTER_MAXIMUM_LENGTH: maxLen, DATA_TYPE: dataType, IS_NULLABLE: isNullable } = lineNameCols[0];
+      const isCharType = dataType === 'varchar' || dataType === 'char';
+      if (isCharType && maxLen != null && maxLen < 255) {
+        const nullClause = isNullable === 'NO' ? 'NOT NULL' : 'NULL';
+        await conn.query(`ALTER TABLE order_item MODIFY line_name VARCHAR(255) ${nullClause}`);
+        console.log('✔  order_item.line_name is VARCHAR(255)');
+      } else {
+        console.log('✔  order_item.line_name is already VARCHAR(255) or wider — skipping');
+      }
+    }
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);

@@ -201,7 +201,9 @@ router.post('/', async (req, res) => {
           return res.status(400).json({ error: e.message });
         }
         item.menuItemId = row.id;
-        item.name = resolved.label;
+        // order_item.line_name is VARCHAR(255) (see server/migrate.js step 8);
+        // a fully customized label can run long, so truncate defensively.
+        item.name = resolved.label.slice(0, 255);
         item.unitPrice = item.paidWithPoints ? 0 : resolved.unitPrice;
         item.customizations = resolved.snapshot;
         stockLines.push({ stockPerUnit: resolved.stockPerUnit, quantity: item.quantity });
