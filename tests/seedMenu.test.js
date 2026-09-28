@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { planMenuRefresh, NEW_ITEMS } from '../server/seedMenu.js';
+import { planMenuRefresh, NEW_ITEMS, FLAVORED_ITEMS } from '../server/seedMenu.js';
+import { OPTION_GROUPS } from '../server/seedOptions.js';
 
 const MENU = [
   { id: 1, name: 'Pizza', category: 'Pizza', available: 1 },
@@ -8,6 +9,8 @@ const MENU = [
   { id: 4, name: 'Chicken Wings', category: 'Appetizers', available: 1 },
   { id: 5, name: 'Chocolate Chip Waffle', category: 'Waffles', available: 1 },
   { id: 6, name: 'Soda', category: 'Beverages', available: 0 },
+  { id: 8, name: 'Oreo Waffle', category: 'Waffles', available: 1 },
+  { id: 9, name: 'Plain Cheesecake', category: 'Pastry', available: 1 },
 ];
 
 const WINGS = [
@@ -32,14 +35,38 @@ describe('planMenuRefresh', () => {
   });
 
   it('hides retired items that are still available, not renamed ones', () => {
-    expect(plan.hides).toEqual([{ id: 3, name: 'Hawaiian Pizza' }]);
+    expect(plan.hides).toEqual([
+      { id: 3, name: 'Hawaiian Pizza' },
+      { id: 5, name: 'Chocolate Chip Waffle' },
+    ]);
+  });
+
+  it('deletes muffins, cheesecakes and single-flavor items', () => {
+    expect(plan.deletes).toEqual([
+      { id: 9, name: 'Plain Cheesecake' },
+      { id: 8, name: 'Oreo Waffle' },
+    ]);
   });
 
   it('creates only items that do not exist yet', () => {
-    const names = plan.creates.map((i) => i.name);
-    expect(names).not.toContain('Chocolate Chip Waffle');
-    expect(names).toContain('Oreo Donut');
-    expect(plan.creates).toHaveLength(NEW_ITEMS.length - 1);
+    expect(plan.creates.map((i) => i.name)).toEqual(NEW_ITEMS.map((i) => i.name));
+    expect(planMenuRefresh([{ id: 20, name: 'Waffle', available: 1 }], []).creates)
+      .toHaveLength(NEW_ITEMS.length - 1);
+  });
+
+  it('never creates an item it also deletes or hides', () => {
+    const names = new Set(NEW_ITEMS.map((i) => i.name.toLowerCase()));
+    for (const { name } of [...plan.deletes, ...plan.hides]) {
+      expect(names.has(name.toLowerCase())).toBe(false);
+    }
+  });
+
+  it('attaches each flavored item to a group the option seed defines', () => {
+    const groups = new Set(OPTION_GROUPS.map((g) => g.name));
+    for (const { group } of FLAVORED_ITEMS) expect(groups.has(group)).toBe(true);
+    const rows = [{ id: 30, name: 'Sub', available: 1 }, { id: 31, name: 'Cookie', available: 1 }];
+    expect(planMenuRefresh(rows, [], [{ menu_item_id: 31, group_name: 'Cookie Flavor' }]).attaches)
+      .toEqual([{ id: 30, name: 'Sub', group: 'Sub Type' }]);
   });
 
   it('turns off wing flavors that left the menu', () => {
@@ -62,8 +89,11 @@ describe('planMenuRefresh', () => {
       { id: 3, name: 'Hawaiian Pizza', category: 'Pizza', available: 0 },
       ...NEW_ITEMS.map((item, i) => ({ id: 100 + i, ...item, available: 1 })),
     ];
-    expect(planMenuRefresh(after, [])).toEqual({
-      renames: [], moves: [], hides: [], creates: [], disableChoices: [],
+    const attachments = FLAVORED_ITEMS.map(({ name, group }) => ({
+      menu_item_id: 100 + NEW_ITEMS.findIndex((i) => i.name === name), group_name: group,
+    }));
+    expect(planMenuRefresh(after, [], attachments)).toEqual({
+      renames: [], deletes: [], moves: [], hides: [], creates: [], disableChoices: [], attaches: [],
     });
   });
 });

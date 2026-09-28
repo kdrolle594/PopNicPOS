@@ -1,9 +1,9 @@
 // Menu refresh: renames the base and veggie pizzas, moves wings into their own
-// category, hides items that left the menu, and adds the new pizzas, waffles,
-// subs and pastries. Idempotent — each step checks the current rows first, so
-// re-running it changes nothing. Hidden items are marked unavailable, never
-// deleted. Runs in one transaction; pass --dry-run to roll it back and only
-// print the plan. Run with `npm run seed:menu` after `node server/migrate.js`.
+// category, hides items that left the menu, deletes dropped items, and adds the
+// new pizzas, flavored items (waffle, sub, donut, cookie) and pastries.
+// Idempotent — each step checks the current rows first, so re-running it
+// changes nothing. Runs in one transaction; pass --dry-run to roll it back and
+// only print the plan. Run with `npm run seed:menu` after `node server/migrate.js`.
 import { pathToFileURL } from 'node:url';
 import { seedOptions, OPTION_GROUPS } from './seedOptions.js';
 
@@ -14,30 +14,41 @@ export const RENAMES = [
 
 export const CATEGORY_MOVES = [{ name: 'Chicken Wings', category: 'Wings' }];
 
+// Retired items with order history: marked unavailable so they can come back
 export const HIDDEN_ITEMS = [
   'Pizza', 'Veggie Pizza', // only if a rename was blocked by an existing row
-  'Hawaiian Pizza', 'Original Waffle', 'Guava Waffle', 'Blueberry Waffle',
+  'Hawaiian Pizza', 'Original Waffle', 'Chocolate Chip Waffle', 'Guava Waffle', 'Blueberry Waffle',
   'Caesar Salad', 'Cheeseburger', 'Pasta Carbonara', 'Grilled Salmon',
   'Tiramisu', 'Soda', 'Coffee',
 ];
 
+// Dropped from the menu for good. Order lines keep their snapshot name and
+// price (order_item.menu_item_id is ON DELETE SET NULL). The single-flavor
+// rows come from an earlier version of this script and are now flavor choices.
+export const DELETED_ITEMS = [
+  'Blueberry Muffin', 'Chocolate Chip Muffin', 'Apple Cinnamon Crumble Muffin',
+  'Cherry Cheesecake', 'Plain Cheesecake',
+  'Banana Waffle', 'Birthday Cake Waffle', 'Oreo Waffle', 'Cotton Candy Waffle',
+  'Meatball Sub', 'Chicken Parm Sub', 'Philly Cheesesteak Sub',
+  'Buffalo Chicken Sub', 'Chicken Bacon Ranch Sub', 'Veggie Pesto Sub',
+  'Chocolate Donut', 'Glazed Donut', 'Cinnamon Sugar Donut', 'Oreo Donut',
+  'Chocolate Chip Cookie', 'Oatmeal Raisin Cookie', 'Sugar Rush Cookie',
+];
+
+// One item per product, flavor picked from its option group (see seedOptions.js)
+export const FLAVORED_ITEMS = [
+  { name: 'Waffle', category: 'Waffles', price: 5.99, group: 'Waffle Flavor' },
+  { name: 'Sub', category: 'Subs', price: 10.99, group: 'Sub Type' },
+  { name: 'Donut', category: 'Pastry', price: 2.49, group: 'Donut Flavor' },
+  { name: 'Cookie', category: 'Pastry', price: 2.49, group: 'Cookie Flavor' },
+];
+
 // Placeholder prices — managers adjust them in Menu Management
 export const NEW_ITEMS = [
+  ...FLAVORED_ITEMS.map(({ name, category, price }) => ({ name, category, price })),
   ...[
-    ['Banana Waffle', 5.99], ['Birthday Cake Waffle', 5.99], ['Oreo Waffle', 5.99],
-    ['Chocolate Chip Waffle', 5.99], ['Cotton Candy Waffle', 5.99],
-  ].map(([name, price]) => ({ name, category: 'Waffles', price })),
-  ...[
-    ['Meatball Sub', 10.99], ['Chicken Parm Sub', 10.99], ['Philly Cheesesteak Sub', 11.99],
-    ['Buffalo Chicken Sub', 10.99], ['Chicken Bacon Ranch Sub', 11.99], ['Veggie Pesto Sub', 9.99],
-  ].map(([name, price]) => ({ name, category: 'Subs', price })),
-  ...[
-    ['Blueberry Muffin', 3.49], ['Chocolate Chip Muffin', 3.49], ['Apple Cinnamon Crumble Muffin', 3.49],
-    ['Cherry Cheesecake', 5.99], ['Plain Cheesecake', 5.49],
-    ['Chocolate Donut', 2.49], ['Glazed Donut', 2.29], ['Cinnamon Sugar Donut', 2.49], ['Oreo Donut', 2.99],
     ['Walnut Banana Bread', 3.99], ['Chocolate Chip Banana Bread', 3.99],
     ['Cinnamon Roll', 4.49], ['Oreo Cinnamon Roll', 4.99], ['Guava Cinnamon Roll', 4.99],
-    ['Chocolate Chip Cookie', 2.49], ['Oatmeal Raisin Cookie', 2.49], ['Sugar Rush Cookie', 2.49],
   ].map(([name, price]) => ({ name, category: 'Pastry', price })),
 ].map((item) => ({
   ...item,
@@ -51,10 +62,11 @@ const WING_FLAVORS = new Set(
 
 const key = (name) => name.toLowerCase();
 
-// Pure: works out every change from the current menu and wing-flavor rows.
-export function planMenuRefresh(menuRows, wingChoices) {
+// Pure: works out every change from the current menu rows, wing-flavor choices
+// and item/group attachments ({ menu_item_id, group_name }).
+export function planMenuRefresh(menuRows, wingChoices, attachments = []) {
   const byName = new Map(menuRows.map((m) => [key(m.name), m]));
-  const plan = { renames: [], moves: [], hides: [], creates: [], disableChoices: [] };
+  const plan = { renames: [], deletes: [], moves: [], hides: [], creates: [], disableChoices: [], attaches: [] };
 
   for (const { from, to } of RENAMES) {
     const row = byName.get(key(from));
@@ -63,6 +75,10 @@ export function planMenuRefresh(menuRows, wingChoices) {
       byName.delete(key(from));
       byName.set(key(to), { ...row, name: to });
     }
+  }
+  for (const name of DELETED_ITEMS) {
+    const row = byName.get(key(name));
+    if (row) plan.deletes.push({ id: row.id, name: row.name });
   }
   for (const { name, category } of CATEGORY_MOVES) {
     const row = byName.get(key(name));
@@ -80,6 +96,11 @@ export function planMenuRefresh(menuRows, wingChoices) {
       plan.disableChoices.push({ id: choice.id, name: choice.name });
     }
   }
+  const attached = new Set(attachments.map((a) => `${a.menu_item_id}:${a.group_name}`));
+  for (const { name, group } of FLAVORED_ITEMS) {
+    const row = byName.get(key(name));
+    if (row && !attached.has(`${row.id}:${group}`)) plan.attaches.push({ id: row.id, name: row.name, group });
+  }
   return plan;
 }
 
@@ -90,7 +111,11 @@ const wingChoicesQuery = `
 async function readPlan(conn) {
   const [menuRows] = await conn.query('SELECT id, name, category, available FROM menu_item');
   const [wingChoices] = await conn.query(wingChoicesQuery);
-  return planMenuRefresh(menuRows, wingChoices);
+  const [attachments] = await conn.query(
+    `SELECT a.menu_item_id, g.name AS group_name FROM menu_item_option_group a
+     JOIN option_group g ON g.id = a.group_id`
+  );
+  return planMenuRefresh(menuRows, wingChoices, attachments);
 }
 
 export async function seedMenu(conn, log = console.log) {
@@ -101,11 +126,15 @@ export async function seedMenu(conn, log = console.log) {
     log(`✔  Renamed ${from} → ${to}`);
   }
 
-  // Adds the new wing flavors and the Sweet Heat / Supreme pizzas (with Pizza Size)
+  // Adds the flavor groups and the Sweet Heat / Supreme pizzas (with Pizza Size)
   await seedOptions(conn, log);
 
   // Plan again so rows seedOptions just created are hidden or kept correctly
   const plan = await readPlan(conn);
+  for (const { id, name } of plan.deletes) {
+    await conn.query('DELETE FROM menu_item WHERE id = ?', [id]);
+    log(`✔  Deleted ${name}`);
+  }
   for (const { id, name, category } of plan.moves) {
     await conn.query('UPDATE menu_item SET category = ? WHERE id = ?', [category, id]);
     log(`✔  Moved ${name} to ${category}`);
@@ -124,6 +153,16 @@ export async function seedMenu(conn, log = console.log) {
       [item.name, item.category, item.price, item.cost, item.pointsValue]
     );
     log(`✔  Added ${item.name} (${item.category}) at ${item.price.toFixed(2)}`);
+  }
+
+  // Flavor groups go on the flavored items once they exist
+  const groupIds = new Map((await conn.query('SELECT id, name FROM option_group'))[0].map((g) => [g.name, g.id]));
+  for (const { id, name, group } of (await readPlan(conn)).attaches) {
+    await conn.query(
+      'INSERT INTO menu_item_option_group (menu_item_id, group_id, sort_order) VALUES (?, ?, 0)',
+      [id, groupIds.get(group)]
+    );
+    log(`✔  Attached ${group} to ${name}`);
   }
   log('✔  Menu refresh complete');
 }

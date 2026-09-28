@@ -34,6 +34,34 @@ export const OPTION_GROUPS = [
       { name: 'Orange Soda' }, { name: 'Grape Soda' },
     ],
   },
+  {
+    name: 'Waffle Flavor', minSelect: 1, maxSelect: 1,
+    choices: [
+      { name: 'Banana', isDefault: true }, { name: 'Birthday Cake' }, { name: 'Oreo' },
+      { name: 'Chocolate Chip' }, { name: 'Cotton Candy' },
+    ],
+  },
+  {
+    name: 'Sub Type', minSelect: 1, maxSelect: 1,
+    choices: [
+      { name: 'Meatball', isDefault: true }, { name: 'Chicken Parm' },
+      { name: 'Philly Cheesesteak', priceDelta: 1 }, { name: 'Buffalo Chicken' },
+      { name: 'Chicken Bacon Ranch', priceDelta: 1 }, { name: 'Veggie Pesto', priceDelta: -1 },
+    ],
+  },
+  {
+    name: 'Donut Flavor', minSelect: 1, maxSelect: 1,
+    choices: [
+      { name: 'Chocolate', isDefault: true }, { name: 'Glazed', priceDelta: -0.2 },
+      { name: 'Cinnamon Sugar' }, { name: 'Oreo', priceDelta: 0.5 },
+    ],
+  },
+  {
+    name: 'Cookie Flavor', minSelect: 1, maxSelect: 1,
+    choices: [
+      { name: 'Chocolate Chip', isDefault: true }, { name: 'Oatmeal Raisin' }, { name: 'Sugar Rush' },
+    ],
+  },
 ];
 
 export const SPECIALTY_PIZZAS = [
