@@ -69,6 +69,12 @@ describe('planMenuRefresh', () => {
       .toEqual([{ id: 30, name: 'Sub', group: 'Sub Type' }]);
   });
 
+  it('switches on listed items that are off, including renamed ones', () => {
+    const off = planMenuRefresh([{ id: 1, name: 'Pizza', category: 'Pizza', available: 0 }], []);
+    expect(off.shows).toEqual([{ id: 1, name: 'Build Your Own Pizza' }]);
+    expect(plan.shows).toEqual([]);
+  });
+
   it('turns off wing flavors that left the menu', () => {
     expect(plan.disableChoices).toEqual([{ id: 11, name: 'BBQ' }]);
   });
@@ -93,7 +99,7 @@ describe('planMenuRefresh', () => {
       menu_item_id: 100 + NEW_ITEMS.findIndex((i) => i.name === name), group_name: group,
     }));
     expect(planMenuRefresh(after, [], attachments)).toEqual({
-      renames: [], deletes: [], moves: [], hides: [], creates: [], disableChoices: [], attaches: [],
+      renames: [], deletes: [], moves: [], hides: [], shows: [], creates: [], disableChoices: [], attaches: [],
     });
   });
 });

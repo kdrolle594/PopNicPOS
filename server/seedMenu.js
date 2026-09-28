@@ -20,7 +20,11 @@ export const HIDDEN_ITEMS = [
   'Hawaiian Pizza', 'Original Waffle', 'Chocolate Chip Waffle', 'Guava Waffle', 'Blueberry Waffle',
   'Caesar Salad', 'Cheeseburger', 'Pasta Carbonara', 'Grilled Salmon',
   'Tiramisu', 'Soda', 'Coffee',
+  'Waffles', // hand-added generic item, replaced by Waffle
 ];
+
+// On the menu list but switched off in the live database
+export const SHOWN_ITEMS = ['Build Your Own Pizza'];
 
 // Dropped from the menu for good. Order lines keep their snapshot name and
 // price (order_item.menu_item_id is ON DELETE SET NULL). The single-flavor
@@ -66,7 +70,7 @@ const key = (name) => name.toLowerCase();
 // and item/group attachments ({ menu_item_id, group_name }).
 export function planMenuRefresh(menuRows, wingChoices, attachments = []) {
   const byName = new Map(menuRows.map((m) => [key(m.name), m]));
-  const plan = { renames: [], deletes: [], moves: [], hides: [], creates: [], disableChoices: [], attaches: [] };
+  const plan = { renames: [], deletes: [], moves: [], hides: [], shows: [], creates: [], disableChoices: [], attaches: [] };
 
   for (const { from, to } of RENAMES) {
     const row = byName.get(key(from));
@@ -87,6 +91,10 @@ export function planMenuRefresh(menuRows, wingChoices, attachments = []) {
   for (const name of HIDDEN_ITEMS) {
     const row = byName.get(key(name));
     if (row && row.available) plan.hides.push({ id: row.id, name: row.name });
+  }
+  for (const name of SHOWN_ITEMS) {
+    const row = byName.get(key(name));
+    if (row && !row.available) plan.shows.push({ id: row.id, name: row.name });
   }
   for (const item of NEW_ITEMS) {
     if (!byName.has(key(item.name))) plan.creates.push(item);
@@ -142,6 +150,10 @@ export async function seedMenu(conn, log = console.log) {
   for (const { id, name } of plan.hides) {
     await conn.query('UPDATE menu_item SET available = FALSE WHERE id = ?', [id]);
     log(`✔  Hid ${name}`);
+  }
+  for (const { id, name } of plan.shows) {
+    await conn.query('UPDATE menu_item SET available = TRUE WHERE id = ?', [id]);
+    log(`✔  Switched on ${name}`);
   }
   for (const { id, name } of plan.disableChoices) {
     await conn.query('UPDATE option_choice SET available = FALSE WHERE id = ?', [id]);
