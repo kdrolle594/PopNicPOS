@@ -109,6 +109,15 @@ describe('getRoute', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(await getRoute([DRIVER, S1, S2], { now: t0 + 5 * 60_000 + 1 })).not.toBeNull();
   });
+  it('backs off for 5 minutes after a 403', async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) }));
+    const t0 = 1_000_000;
+    expect(await getRoute([DRIVER, S1], { now: t0 })).toBeNull();
+    globalThis.fetch = vi.fn(async () => okResponse(ORS_BODY));
+    expect(await getRoute([DRIVER, S1, S2], { now: t0 + 4 * 60_000 })).toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(await getRoute([DRIVER, S1, S2], { now: t0 + 5 * 60_000 + 1 })).not.toBeNull();
+  });
   it('returns null for fewer than two points', async () => {
     globalThis.fetch = vi.fn();
     expect(await getRoute([DRIVER])).toBeNull();

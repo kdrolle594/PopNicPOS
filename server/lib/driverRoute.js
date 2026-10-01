@@ -104,8 +104,17 @@ function parseJson(value) {
   try { return JSON.parse(value); } catch { return null; }
 }
 
-// DB wrapper. Must run inside the caller's transaction. Lock order: the
-// driver_location row is locked first, then customer_order rows are written.
+// First lock in every route-changing transaction. The driver's app_user row
+// always exists, so it serializes same-driver transactions even when there is
+// no driver_location row yet (a missing row only takes a non-blocking gap lock).
+// Lock order: app_user(driver) -> driver_location -> customer_order.
+export async function lockDriver(conn, driverUserId) {
+  await conn.query('SELECT id FROM app_user WHERE id = ? FOR UPDATE', [driverUserId]);
+  await conn.query('SELECT driver_user_id FROM driver_location WHERE driver_user_id = ? FOR UPDATE', [driverUserId]);
+}
+
+// DB wrapper. Must run inside the caller's transaction, after lockDriver.
+// Lock order: app_user(driver) -> driver_location -> customer_order.
 export async function recalculateDriverRoute(conn, driverUserId, { force = false, now = new Date() } = {}) {
   const [[loc]] = await conn.query(
     'SELECT * FROM driver_location WHERE driver_user_id = ? FOR UPDATE',

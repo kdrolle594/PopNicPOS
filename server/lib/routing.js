@@ -11,6 +11,8 @@ export function _resetRoutingState() {
   backoffUntil = 0;
 }
 
+const round5 = (x) => Math.round(x * 1e5) / 1e5;
+
 export function parseOrsResponse(body, stopCount) {
   const feature = body?.features?.[0];
   const segments = feature?.properties?.segments;
@@ -24,7 +26,8 @@ export function parseOrsResponse(body, stopCount) {
   return {
     source: 'ors',
     legDurationsSec,
-    geometry: coords.map(([lng, lat]) => [lat, lng]),
+    // 5 decimals (~1 m) keeps Ably payloads small.
+    geometry: coords.map(([lng, lat]) => [round5(lat), round5(lng)]),
     wayPointIndexes: wayPoints,
   };
 }
@@ -51,9 +54,9 @@ export async function getRoute(points, { now = Date.now() } = {}) {
       body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]) }),
       signal: controller.signal,
     });
-    if (res.status === 429) {
+    if (res.status === 429 || res.status === 403) {
       backoffUntil = now + BACKOFF_MS;
-      console.warn('ORS rate limit hit — using straight-line ETAs for 5 minutes');
+      console.warn('ORS quota or key rejected — using straight-line ETAs for 5 minutes');
       return null;
     }
     if (!res.ok) {

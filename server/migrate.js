@@ -304,6 +304,23 @@ async function run() {
       console.log('✔  Added customer_order.driver_user_id FK');
     }
 
+    // Covers recalculateDriverRoute's locking read of one driver's
+    // out_for_delivery orders, so it locks only that driver's rows.
+    const [driverStatusIdx] = await conn.query(`
+      SELECT 1 FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_order'
+        AND INDEX_NAME = 'idx_customer_order_driver_status'
+    `);
+    if (driverStatusIdx.length) {
+      console.log('✔  customer_order driver/status index already exists — skipping');
+    } else {
+      await conn.query(`
+        ALTER TABLE customer_order
+          ADD INDEX idx_customer_order_driver_status (driver_user_id, status)
+      `);
+      console.log('✔  Added idx_customer_order_driver_status to customer_order');
+    }
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS driver_location (
         driver_user_id  ${userIdType} NOT NULL,

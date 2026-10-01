@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS customer_order (
   INDEX idx_customer_order_created_at (created_at DESC),
   INDEX idx_customer_order_customer_phone (customer_phone),
   INDEX idx_customer_order_customer_user_id (customer_user_id),
+  INDEX idx_customer_order_driver_status (driver_user_id, status),
   CONSTRAINT fk_order_customer
     FOREIGN KEY (customer_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
   CONSTRAINT fk_customer_order_driver_user

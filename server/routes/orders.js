@@ -10,7 +10,8 @@ import { loadOptionData, loadStock, loadThresholds, groupsForItem } from '../lib
 import {
   deliveryPinError, STAFF_ASSIGN_ROLES, canChangeStatus, canRelease, resolveClaim,
 } from '../lib/orderRules.js';
-import { recalculateDriverRoute } from '../lib/driverRoute.js';
+// lockDriver lock order: app_user(driver) -> driver_location -> customer_order.
+import { recalculateDriverRoute, lockDriver } from '../lib/driverRoute.js';
 
 const router = Router();
 
@@ -27,11 +28,6 @@ function parseCustomizations(raw) {
   } catch {
     return {};
   }
-}
-
-// Lock order: driver_location before customer_order (see recalculateDriverRoute).
-async function lockDriver(conn, driverUserId) {
-  await conn.query('SELECT driver_user_id FROM driver_location WHERE driver_user_id = ? FOR UPDATE', [driverUserId]);
 }
 
 // GET /api/orders — list all orders with line items

@@ -27,6 +27,7 @@ if (serviceUri) {
     connectionLimit: 3,
     queueLimit: 0,
     dateStrings: false,
+    timezone: 'Z',
   };
 } else {
   poolConfig = {
@@ -40,6 +41,7 @@ if (serviceUri) {
     connectionLimit: 3,
     queueLimit: 0,
     dateStrings: false,
+    timezone: 'Z',
   };
 }
 

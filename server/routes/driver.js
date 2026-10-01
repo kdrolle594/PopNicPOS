@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { parseLocation } from '../lib/orderRules.js';
-import { recalculateDriverRoute } from '../lib/driverRoute.js';
+import { recalculateDriverRoute, lockDriver } from '../lib/driverRoute.js';
 import { emitRoutePublishes } from '../realtime.js';
 
 const router = Router();
@@ -15,6 +15,8 @@ router.post('/location', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    // Lock app_user(driver) first so this serializes with claims/releases/status changes.
+    await lockDriver(conn, req.user.id);
     const now = new Date();
     await conn.query(
       `INSERT INTO driver_location (driver_user_id, lat, lng, updated_at)
