@@ -13,6 +13,8 @@ export function useLocationSharing(active, send) {
   let watchId = null;
   let timer = null;
   let wakeLock = null;
+  let wakeLockPending = false;
+  let lastAttemptAt = null;
   let sending = false;
 
   if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
@@ -23,7 +25,7 @@ export function useLocationSharing(active, send) {
         fix.value = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         permission.value = 'granted';
         error.value = '';
-        if (active.value && lastSentAt.value == null) sendNow();
+        if (active.value && lastAttemptAt == null) sendNow();
       },
       (err) => {
         if (err.code === 1) permission.value = 'denied';
@@ -36,6 +38,7 @@ export function useLocationSharing(active, send) {
   async function sendNow() {
     if (!fix.value || sending) return;
     sending = true;
+    lastAttemptAt = Date.now();
     try {
       await send(fix.value);
       lastSentAt.value = Date.now();
@@ -47,13 +50,21 @@ export function useLocationSharing(active, send) {
   }
 
   async function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock || wakeLockPending) return;
+    wakeLockPending = true;
     try {
-      if ('wakeLock' in navigator && !wakeLock) {
-        wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      const lock = await navigator.wakeLock.request('screen');
+      if (!active.value || !timer) {
+        // Sharing stopped while the request was in flight.
+        lock.release().catch(() => {});
+        return;
       }
+      wakeLock = lock;
+      lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
     } catch {
       // Unsupported or refused — sharing still works while the screen is on.
+    } finally {
+      wakeLockPending = false;
     }
   }
 
@@ -76,6 +87,7 @@ export function useLocationSharing(active, send) {
     clearInterval(timer);
     timer = null;
     lastSentAt.value = null;
+    lastAttemptAt = null;
     document.removeEventListener('visibilitychange', onVisible);
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   }
