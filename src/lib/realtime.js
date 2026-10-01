@@ -57,27 +57,6 @@ export function subscribeCustomer(userId, handlers) {
   return subscribeChannel(`customer:${userId}`, handlers);
 }
 
-export async function subscribeDelivery(orderId, handlers) {
-  const client = await getClient();
-  const channel = client.channels.get(`delivery:${orderId}`);
-  const bound = [];
-  for (const [event, fn] of Object.entries(handlers)) {
-    const listener = (msg) => fn(msg.data);
-    channel.subscribe(event, listener);
-    bound.push([event, listener]);
-  }
-  return () => {
-    for (const [event, listener] of bound) channel.unsubscribe(event, listener);
-    channel.detach();
-  };
-}
-
-export async function publishDriverLocation(orderId, payload) {
-  const client = await getClient();
-  const channel = client.channels.get(`delivery:${orderId}`);
-  return channel.publish('driverLocation', payload);
-}
-
 export async function subscribeMenu(onChange) {
   const client = await getClient();
   const channel = client.channels.get('menu');

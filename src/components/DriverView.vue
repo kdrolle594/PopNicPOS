@@ -1,327 +1,301 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '../store/useAuthStore.js';
-import { publishDriverLocation } from '../lib/realtime.js';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
+import { subscribeOrders } from '../lib/realtime.js';
+import { useToast } from '../lib/useToast.js';
+import { useLocationSharing } from '../lib/useLocationSharing.js';
+import { haversineMeters, formatDistance, formatClock, secondsAgoText } from '../lib/delivery.js';
+import DriverRouteMap from './driver/DriverRouteMap.vue';
 
 const auth = useAuthStore();
+const toast = useToast();
+const me = computed(() => auth.state.appUser?.id ?? null);
 
-// Driver name comes from the backend-resolved app user — the same value the
-// server stamps onto the order when this driver claims it.
-const driverName = computed(
-  () => auth.state.appUser?.name || auth.state.appUser?.email || 'Driver'
-);
-
-const deliveryOrders = ref([]);
-const loadingOrders  = ref(false);
-const selectedOrder  = ref(null);
-const lastPosition   = ref(null);
-const errorMsg       = ref('');
-const claiming       = ref(false);
-const step           = ref('select'); // 'select' | 'tracking'
-
-let watchId          = null;
-let locationInterval = null;
+const orders = ref([]);
+const loading = ref(true);
+const tab = ref('available'); // 'available' | 'route'
+const busy = ref({}); // orderId -> true while a request is in flight
+const route = ref({ stops: [], geometry: null, source: 'fallback' });
+const now = ref(Date.now());
+let tick = null;
+let unsubscribe = null;
 
 async function api(path, options = {}) {
   const base = import.meta.env.VITE_API_URL || '';
   const token = await auth.getToken();
   const res = await fetch(`${base}/api${path}`, {
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status;
+    throw err;
   }
-  return res.json();
+  return data;
 }
 
-// ── Map state ─────────────────────────────────────────────────────────────────
+// ── Data ──────────────────────────────────────────────────────────────────────
 
-const mapContainer = ref(null);
-let leafletMap = null;
-let customerMarker = null;
-let driverMarker = null;
+const available = computed(() =>
+  orders.value.filter((o) =>
+    o.orderType === 'delivery' && o.status === 'ready' && o.driverUserId == null && o.deliveryLat != null
+  )
+);
 
-async function loadDeliveryOrders() {
-  loadingOrders.value = true;
-  errorMsg.value = '';
+// Route from GET /api/orders, used until the first location response arrives.
+function routeFromOrders() {
+  const mine = orders.value
+    .filter((o) => o.status === 'out_for_delivery' && o.driverUserId === me.value)
+    .sort((a, b) => (a.queuePosition ?? Infinity) - (b.queuePosition ?? Infinity) || a.id - b.id);
+  return mine.map((o, i) => ({
+    orderId: o.id,
+    orderNumber: o.orderNumber,
+    position: i + 1,
+    customerName: o.customerName,
+    customerPhone: o.customerPhone,
+    deliveryAddress: o.deliveryAddress,
+    lat: o.deliveryLat,
+    lng: o.deliveryLng,
+    etaAt: o.etaAt,
+  }));
+}
+
+async function loadOrders() {
   try {
-    const all = await api('/orders');
-    // Hide deliveries another driver has already claimed.
-    deliveryOrders.value = all.filter(
-      (o) =>
-        o.orderType === 'delivery' &&
-        o.status === 'ready' &&
-        (!o.driverName || o.driverName === driverName.value)
-    );
+    orders.value = await api('/orders');
+    route.value = { ...route.value, stops: routeFromOrders() };
   } catch {
-    errorMsg.value = 'Failed to load orders.';
+    toast.error('Could not load orders.');
   } finally {
-    loadingOrders.value = false;
+    loading.value = false;
   }
 }
 
-async function startDelivery(order) {
-  errorMsg.value = '';
-  claiming.value = true;
+function applyRoute(next) {
+  if (next) route.value = next;
+}
 
-  // Claim the order server-side first. This stamps driver_name/driver_phone onto
-  // the order and publishes orderDriverAssigned, which is what surfaces the
-  // driver's contact details in the customer's tracking panel and the kitchen.
-  try {
-    const claimed = await api(`/orders/${order.id}/driver`, { method: 'PUT' });
-    order = { ...order, driverName: claimed.driverName, driverPhone: claimed.driverPhone };
-  } catch (err) {
-    errorMsg.value = err.message || 'Could not claim this order.';
-    claiming.value = false;
-    loadDeliveryOrders();
-    return;
-  }
-  claiming.value = false;
+const hasStops = computed(() => route.value.stops.length > 0);
 
-  selectedOrder.value = order;
-  step.value = 'tracking';
+// ── Location sharing ─────────────────────────────────────────────────────────
 
-  if ('geolocation' in navigator) {
-    watchId = navigator.geolocation.watchPosition(
-      (pos) => { lastPosition.value = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
-      (err) => { errorMsg.value = `GPS error: ${err.message}`; },
-      { enableHighAccuracy: true, maximumAge: 5000 }
-    );
-  } else {
-    errorMsg.value = 'GPS not available on this device.';
-  }
+const { fix, permission, error: gpsError, lastSentAt } = useLocationSharing(hasStops, async (position) => {
+  applyRoute(await api('/driver/location', { method: 'POST', body: position }));
+});
 
-  locationInterval = setInterval(() => {
-    if (lastPosition.value && selectedOrder.value) {
-      publishDriverLocation(selectedOrder.value.id, {
-        lat:        lastPosition.value.lat,
-        lng:        lastPosition.value.lng,
-        driverName: driverName.value,
-      });
+const canClaim = computed(() => permission.value === 'granted' && fix.value != null);
+
+function distanceTo(order) {
+  if (!fix.value) return null;
+  return formatDistance(haversineMeters(fix.value, { lat: order.deliveryLat, lng: order.deliveryLng }));
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+
+async function withBusy(orderId, fn) {
+  busy.value = { ...busy.value, [orderId]: true };
+  try { await fn(); } finally { busy.value = { ...busy.value, [orderId]: false }; }
+}
+
+async function addToRoute(order) {
+  await withBusy(order.id, async () => {
+    try {
+      const claimed = await api(`/orders/${order.id}/driver`, { method: 'PUT', body: {} });
+      applyRoute(claimed.route);
+      orders.value = orders.value.map((o) => (o.id === order.id
+        ? { ...o, status: 'out_for_delivery', driverUserId: me.value } : o));
+    } catch (err) {
+      if (err.status === 409) {
+        orders.value = orders.value.filter((o) => o.id !== order.id);
+        toast.info('Already taken');
+      } else {
+        toast.error(err.message || 'Could not add this order.');
+      }
     }
-  }, 5000);
+  });
 }
 
-function endDelivery() {
-  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
-  clearInterval(locationInterval); locationInterval = null;
-  destroyMap();
-  selectedOrder.value = null;
-  lastPosition.value  = null;
-  step.value = 'select';
-  loadDeliveryOrders();
+async function markDelivered(stop) {
+  if (!window.confirm(`Mark order #${stop.orderNumber} as delivered?`)) return;
+  await withBusy(stop.orderId, async () => {
+    try {
+      const res = await api(`/orders/${stop.orderId}/status`, { method: 'PUT', body: { status: 'completed' } });
+      orders.value = orders.value.map((o) => (o.id === stop.orderId ? { ...o, status: 'completed' } : o));
+      applyRoute(res.route ?? { ...route.value, stops: route.value.stops.filter((s) => s.orderId !== stop.orderId) });
+      toast.success(`Order #${stop.orderNumber} delivered`);
+    } catch (err) {
+      toast.error(err.message || 'Could not mark delivered.');
+    }
+  });
 }
 
-// ── Map functions ─────────────────────────────────────────────────────────────
+async function release(stop) {
+  if (!window.confirm(`Hand order #${stop.orderNumber} back? It returns to the available list.`)) return;
+  await withBusy(stop.orderId, async () => {
+    try {
+      const res = await api(`/orders/${stop.orderId}/driver`, { method: 'DELETE' });
+      orders.value = orders.value.map((o) => (o.id === stop.orderId
+        ? { ...o, status: 'ready', driverUserId: null, driverName: null, driverPhone: null } : o));
+      applyRoute(res.route);
+    } catch (err) {
+      toast.error(err.message || 'Could not release this order.');
+    }
+  });
+}
 
-function openMapsNavigation() {
-  const order = selectedOrder.value;
-  if (!order) return;
-  const hasGps = order.deliveryLat != null && order.deliveryLng != null;
-  const dest = hasGps
-    ? `${order.deliveryLat},${order.deliveryLng}`
-    : encodeURIComponent(order.deliveryAddress || '');
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving`;
+function navigate(stop) {
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
   window.open(url, '_blank', 'noopener');
 }
 
-function initMap() {
-  if (!mapContainer.value || leafletMap) return;
-  const order = selectedOrder.value;
-  const hasCustomerGps = order && order.deliveryLat != null && order.deliveryLng != null;
-  const center = hasCustomerGps
-    ? [Number(order.deliveryLat), Number(order.deliveryLng)]
-    : [39.8283, -98.5795];
-  const zoom = hasCustomerGps ? 15 : 5;
+// ── Lifecycle ────────────────────────────────────────────────────────────────
 
-  leafletMap = L.map(mapContainer.value).setView(center, zoom);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 18,
-  }).addTo(leafletMap);
-
-  placeCustomerMarker();
-  if (lastPosition.value) placeDriverMarker(lastPosition.value.lat, lastPosition.value.lng);
-}
-
-function placeCustomerMarker() {
-  const order = selectedOrder.value;
-  if (!leafletMap || !order || order.deliveryLat == null || order.deliveryLng == null) return;
-  const lat = Number(order.deliveryLat);
-  const lng = Number(order.deliveryLng);
-  const homeIcon = L.divIcon({
-    className: '',
-    html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))">🏠</div>',
-    iconAnchor: [14, 28],
+onMounted(async () => {
+  tick = setInterval(() => { now.value = Date.now(); }, 1000);
+  await loadOrders();
+  if (hasStops.value) tab.value = 'route';
+  unsubscribe = await subscribeOrders({
+    newOrder: (order) => { orders.value = [...orders.value, order]; },
+    orderStatusUpdated: ({ orderId, status }) => {
+      orders.value = orders.value.map((o) => (o.id === orderId ? { ...o, status } : o));
+    },
+    orderDriverAssigned: ({ orderId, driverUserId, driverName, driverPhone }) => {
+      orders.value = orders.value.map((o) => (o.id === orderId ? { ...o, driverUserId, driverName, driverPhone } : o));
+    },
+    // Someone else changed my route (staff assign/cancel): rebuild from the server.
+    driverRouteUpdated: ({ driverUserId }) => {
+      if (driverUserId === me.value) loadOrders();
+    },
   });
-  if (customerMarker) customerMarker.remove();
-  customerMarker = L.marker([lat, lng], { icon: homeIcon })
-    .addTo(leafletMap)
-    .bindPopup(`${order.customerName || 'Customer'}<br/>${order.deliveryAddress || ''}`);
-}
-
-function placeDriverMarker(lat, lng) {
-  if (!leafletMap) return;
-  const carIcon = L.divIcon({
-    className: '',
-    html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.4))">🚗</div>',
-    iconAnchor: [14, 14],
-  });
-  if (!driverMarker) {
-    driverMarker = L.marker([lat, lng], { icon: carIcon }).addTo(leafletMap).bindPopup('You');
-  } else {
-    driverMarker.setLatLng([lat, lng]);
-  }
-  if (customerMarker) {
-    leafletMap.fitBounds([[lat, lng], customerMarker.getLatLng()], { padding: [40, 40] });
-  } else {
-    leafletMap.panTo([lat, lng]);
-  }
-}
-
-function destroyMap() {
-  if (leafletMap) { leafletMap.remove(); leafletMap = null; }
-  customerMarker = null;
-  driverMarker = null;
-}
-
-// Initialize map when entering tracking step
-watch(step, async (s) => {
-  if (s !== 'tracking') return;
-  await nextTick();
-  initMap();
 });
-
-// Move the driver marker when GPS updates
-watch(lastPosition, async (pos) => {
-  if (!pos || step.value !== 'tracking') return;
-  if (!leafletMap) { await nextTick(); initMap(); }
-  if (leafletMap) placeDriverMarker(pos.lat, pos.lng);
-});
-
-onMounted(loadDeliveryOrders);
 
 onUnmounted(() => {
-  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-  clearInterval(locationInterval);
-  destroyMap();
+  clearInterval(tick);
+  if (unsubscribe) unsubscribe();
 });
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-start justify-center p-6">
-    <div class="bg-white rounded-2xl shadow-lg border w-full max-w-sm p-6 space-y-5 mt-8">
+  <div class="min-h-screen bg-gray-50 flex items-start justify-center p-4 sm:p-6">
+    <div class="bg-white rounded-2xl shadow-lg border w-full max-w-md p-5 space-y-4 mt-4">
+      <h1 class="text-xl font-bold">Deliveries</h1>
 
-      <!-- Order selection -->
-      <div v-if="step === 'select'" class="space-y-4">
-        <div>
-          <div class="text-4xl text-center mb-2">🚗</div>
-          <h1 class="text-xl font-bold text-center">Ready for Delivery</h1>
-          <p class="text-sm text-gray-500 text-center">Hi {{ driverName }} — select an order to deliver</p>
-        </div>
+      <!-- Location banner -->
+      <div
+        v-if="permission === 'denied' || permission === 'unsupported'"
+        class="rounded-xl p-3 text-sm bg-orange-50 border border-orange-200 text-orange-800"
+        role="alert"
+      >
+        Location access is off. Turn on location for this site in your browser settings and reload.
+        You need it to add orders to your route.
+      </div>
 
-        <div v-if="loadingOrders" class="text-center text-gray-400 py-8">Loading orders…</div>
-        <div v-else-if="!deliveryOrders.length" class="text-center text-gray-400 py-8">
-          No orders ready for delivery yet.
-        </div>
-        <div v-else class="space-y-3">
-          <div
-            v-for="order in deliveryOrders"
-            :key="order.id"
-            class="border rounded-xl p-4 space-y-2"
-          >
-            <div class="flex items-center justify-between">
-              <p class="font-semibold">Order #{{ order.orderNumber }}</p>
-              <span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">Ready</span>
-            </div>
-            <p class="text-sm text-gray-600">{{ order.customerName }}</p>
-            <p class="text-sm text-gray-500">📍 {{ order.deliveryAddress }}</p>
-            <p v-if="order.deliveryLat != null && order.deliveryLng != null" class="text-xs text-green-700">
-              GPS pin provided
-            </p>
-            <button
-              class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
-              :disabled="claiming"
-              @click="startDelivery(order)"
-            >
-              {{ claiming ? 'Claiming…' : 'Start Delivery' }}
-            </button>
+      <!-- Tabs -->
+      <div class="grid grid-cols-2 gap-2" role="tablist">
+        <button
+          role="tab"
+          :aria-selected="tab === 'available'"
+          class="py-2 rounded-lg text-sm font-medium border"
+          :class="tab === 'available' ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-700'"
+          @click="tab = 'available'"
+        >
+          Available ({{ available.length }})
+        </button>
+        <button
+          role="tab"
+          :aria-selected="tab === 'route'"
+          class="py-2 rounded-lg text-sm font-medium border"
+          :class="tab === 'route' ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-700'"
+          @click="tab = 'route'"
+        >
+          My route ({{ route.stops.length }})
+        </button>
+      </div>
+
+      <div v-if="loading" class="text-center text-gray-400 py-8">Loading orders…</div>
+
+      <!-- Available -->
+      <div v-else-if="tab === 'available'" class="space-y-3">
+        <p v-if="!available.length" class="text-center text-gray-400 py-8">No orders ready for delivery.</p>
+        <div v-for="order in available" :key="order.id" class="border rounded-xl p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <p class="font-semibold">Order #{{ order.orderNumber }}</p>
+            <span v-if="distanceTo(order)" class="text-xs text-gray-500">{{ distanceTo(order) }}</span>
           </div>
-        </div>
-
-        <p v-if="errorMsg" class="text-red-600 text-sm">{{ errorMsg }}</p>
-
-        <button class="w-full py-2 border rounded-lg text-sm text-blue-600" @click="loadDeliveryOrders">
-          Refresh
-        </button>
-      </div>
-
-      <!-- Active tracking -->
-      <div v-if="step === 'tracking'" class="space-y-4 text-center">
-        <div class="text-5xl animate-bounce">🚗</div>
-        <div>
-          <h1 class="text-xl font-bold">On Delivery</h1>
-          <p class="text-sm text-gray-500">Order #{{ selectedOrder?.orderNumber }}</p>
-        </div>
-
-        <div class="bg-gray-50 border rounded-xl p-3 text-sm text-gray-700 text-left space-y-1">
-          <p class="font-medium">Delivering to:</p>
-          <p class="text-gray-600">{{ selectedOrder?.customerName }}</p>
-          <p class="text-gray-600">{{ selectedOrder?.deliveryAddress }}</p>
-          <p v-if="selectedOrder?.customerPhone" class="text-gray-500 text-xs">📞 {{ selectedOrder.customerPhone }}</p>
-          <p
-            v-if="selectedOrder?.deliveryLat != null && selectedOrder?.deliveryLng != null"
-            class="text-green-700 text-xs"
+          <p class="text-sm text-gray-600">{{ order.items?.length || 0 }} item{{ order.items?.length === 1 ? '' : 's' }}</p>
+          <p class="text-sm text-gray-500">{{ order.deliveryAddress || 'No address notes' }}</p>
+          <button
+            class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
+            :disabled="!canClaim || busy[order.id]"
+            @click="addToRoute(order)"
           >
-            📍 {{ Number(selectedOrder.deliveryLat).toFixed(5) }}, {{ Number(selectedOrder.deliveryLng).toFixed(5) }}
-          </p>
-          <p v-else class="text-orange-600 text-xs">No GPS pin — use address for navigation</p>
+            {{ busy[order.id] ? 'Adding…' : 'Add to route' }}
+          </button>
         </div>
-
-        <!-- Map -->
-        <div class="rounded-xl overflow-hidden border" style="height: 260px;">
-          <div ref="mapContainer" style="height: 100%; width: 100%;" />
-        </div>
-
-        <button
-          class="w-full py-2 rounded-lg border border-blue-300 text-blue-700 text-sm font-medium"
-          @click="openMapsNavigation"
-        >
-          Open in Maps
-        </button>
-
-        <div
-          class="rounded-xl p-3 text-sm space-y-1 text-left"
-          :class="lastPosition ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'"
-        >
-          <p v-if="lastPosition" class="text-green-700 font-medium">GPS Active — Broadcasting location</p>
-          <p v-else class="text-orange-600 font-medium">Acquiring GPS signal…</p>
-          <p v-if="lastPosition" class="text-gray-500 text-xs">
-            {{ lastPosition.lat.toFixed(5) }}, {{ lastPosition.lng.toFixed(5) }}
-          </p>
-        </div>
-
-        <p v-if="errorMsg" class="text-red-600 text-sm">{{ errorMsg }}</p>
-
-        <button
-          class="w-full py-3 rounded-xl bg-red-600 text-white font-semibold"
-          @click="endDelivery"
-        >
-          End Delivery
-        </button>
       </div>
 
+      <!-- My route -->
+      <div v-else class="space-y-3">
+        <p v-if="!route.stops.length" class="text-center text-gray-400 py-8">
+          Your route is empty. Add orders from the Available tab.
+        </p>
+        <template v-else>
+          <DriverRouteMap :driver="fix" :stops="route.stops" :geometry="route.geometry" />
+
+          <div
+            class="rounded-xl p-2 text-xs"
+            :class="gpsError ? 'bg-orange-50 border border-orange-200 text-orange-700' : 'bg-green-50 border border-green-200 text-green-700'"
+            aria-live="polite"
+          >
+            <template v-if="gpsError">GPS problem: {{ gpsError }}</template>
+            <template v-else>Sharing location · {{ secondsAgoText(lastSentAt, now) }}</template>
+            <span v-if="lastSentAt != null && route.source === 'fallback'" class="block text-gray-500">Road routing unavailable — ETAs are estimates.</span>
+          </div>
+
+          <div v-for="stop in route.stops" :key="stop.orderId" class="border rounded-xl p-4 space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-7 h-7 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center">
+                  {{ stop.position }}
+                </span>
+                <div>
+                  <p class="font-semibold">{{ stop.customerName || 'Customer' }}</p>
+                  <p class="text-xs text-gray-500">Order #{{ stop.orderNumber }} · ETA {{ formatClock(stop.etaAt) }}</p>
+                </div>
+              </div>
+              <details class="relative">
+                <summary class="cursor-pointer text-gray-500 px-2" aria-label="More actions">⋯</summary>
+                <button
+                  class="absolute right-0 mt-1 whitespace-nowrap bg-white border rounded-lg shadow px-3 py-2 text-sm text-red-600"
+                  :disabled="busy[stop.orderId]"
+                  @click="release(stop)"
+                >
+                  Release order
+                </button>
+              </details>
+            </div>
+            <p class="text-sm text-gray-600">{{ stop.deliveryAddress || 'No address notes' }}</p>
+            <a v-if="stop.customerPhone" :href="`tel:${stop.customerPhone}`" class="text-sm text-blue-600">
+              📞 {{ stop.customerPhone }}
+            </a>
+            <div class="grid grid-cols-2 gap-2">
+              <button class="py-2 rounded-lg border border-blue-300 text-blue-700 text-sm font-medium" @click="navigate(stop)">
+                Navigate
+              </button>
+              <button
+                class="py-2 rounded-lg bg-green-600 text-white text-sm font-medium disabled:opacity-50"
+                :disabled="busy[stop.orderId]"
+                @click="markDelivered(stop)"
+              >
+                Delivered
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </template>
