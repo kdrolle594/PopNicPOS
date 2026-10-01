@@ -1,9 +1,11 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { usePosStore } from '../store/usePosStore';
 import { subscribeOrders } from '../lib/realtime.js';
+import { useToast } from '../lib/useToast.js';
 
-const { state, updateOrderStatus, updateOrderDriver } = usePosStore();
+const { state, updateOrderStatus, updateOrderDriver, fetchDrivers } = usePosStore();
+const toast = useToast();
 
 const activeOrders = computed(() =>
   state.orders
@@ -37,27 +39,49 @@ function nextLabel(status) {
   return 'Complete Order';
 }
 
+// Delivery orders are completed by the driver, not the kitchen.
+function canAdvance(order) {
+  return !(order.status === 'ready' && order.orderType === 'delivery');
+}
+
 // ── Driver assignment ──────────────────────────────────────────────────────────
 
-const driverAssignState = reactive({});
+const drivers = ref([]);
+const selectedDriver = reactive({}); // orderId -> driver user id
+const assigning = reactive({});
 
-function initDriverState(orderId) {
-  if (!driverAssignState[orderId])
-    driverAssignState[orderId] = { open: false, name: '', phone: '' };
-  return driverAssignState[orderId];
+async function loadDrivers() {
+  try {
+    drivers.value = await fetchDrivers();
+  } catch {
+    drivers.value = [];
+  }
+}
+
+function driverLabel(d) {
+  return `${d.name} (${d.activeStops} stop${d.activeStops === 1 ? '' : 's'})`;
 }
 
 async function assignDriver(order) {
-  const s = driverAssignState[order.id];
-  if (!s?.name.trim()) { alert('Driver name is required.'); return; }
-  await updateOrderDriver(order.id, s.name.trim(), s.phone.trim() || null);
-  s.open = false;
+  const driverUserId = Number(selectedDriver[order.id]);
+  if (!driverUserId) return;
+  assigning[order.id] = true;
+  try {
+    await updateOrderDriver(order.id, driverUserId);
+    toast.success(`Order #${order.orderNumber} is on its way`);
+  } catch (err) {
+    toast.error(err.message || 'Could not assign driver');
+  } finally {
+    assigning[order.id] = false;
+    loadDrivers();
+  }
 }
 
 // ── Realtime (Ably) ──────────────────────────────────────────────────────────
 
 let unsubscribe;
 onMounted(async () => {
+  loadDrivers();
   unsubscribe = await subscribeOrders({
     newOrder: (order) => {
       state.orders.push(order);
@@ -66,10 +90,12 @@ onMounted(async () => {
       const o = state.orders.find((o) => o.id === orderId);
       if (o) o.status = status;
     },
-    orderDriverAssigned: ({ orderId, driverName, driverPhone }) => {
+    orderDriverAssigned: ({ orderId, driverUserId, driverName, driverPhone }) => {
       const o = state.orders.find((o) => o.id === orderId);
-      if (o) { o.driverName = driverName; o.driverPhone = driverPhone; }
+      if (o) { o.driverUserId = driverUserId; o.driverName = driverName; o.driverPhone = driverPhone; }
+      loadDrivers();
     },
+    driverRouteUpdated: () => loadDrivers(),
   });
 });
 
@@ -129,6 +155,7 @@ onUnmounted(() => {
 
         <div class="flex gap-2">
           <button
+            v-if="canAdvance(order)"
             class="flex-1 px-3 py-2 rounded-lg border hover:bg-gray-50"
             @click="updateOrderStatus(order.id, nextStatus(order.status))"
           >
@@ -144,44 +171,26 @@ onUnmounted(() => {
         </div>
 
         <!-- Driver assignment — delivery orders marked ready -->
-        <div v-if="order.status === 'ready' && order.orderType === 'delivery'" class="mt-3 border-t pt-3">
-          <div v-if="order.driverName" class="text-sm text-green-700 font-medium">
-            Driver: {{ order.driverName }}<span v-if="order.driverPhone"> ({{ order.driverPhone }})</span>
-          </div>
-          <div v-else>
-            <button
-              class="text-sm px-3 py-1 border rounded hover:bg-gray-50"
-              @click="initDriverState(order.id).open = true"
+        <div v-if="order.status === 'ready' && order.orderType === 'delivery'" class="mt-3 border-t pt-3 space-y-2">
+          <p class="text-sm text-gray-500">Waiting for a driver</p>
+          <div v-if="drivers.length" class="flex gap-2">
+            <select
+              v-model="selectedDriver[order.id]"
+              class="flex-1 border rounded px-2 py-1 text-sm"
+              :aria-label="`Driver for order ${order.orderNumber}`"
             >
-              Assign Driver
+              <option :value="undefined" disabled>Choose a driver</option>
+              <option v-for="d in drivers" :key="d.id" :value="d.id">{{ driverLabel(d) }}</option>
+            </select>
+            <button
+              class="px-3 py-1 rounded bg-green-600 text-white text-sm disabled:opacity-50"
+              :disabled="!selectedDriver[order.id] || assigning[order.id]"
+              @click="assignDriver(order)"
+            >
+              {{ assigning[order.id] ? 'Assigning…' : 'Assign' }}
             </button>
           </div>
-          <div v-if="driverAssignState[order.id]?.open" class="mt-2 space-y-2">
-            <input
-              v-model="driverAssignState[order.id].name"
-              class="w-full border rounded px-2 py-1 text-sm"
-              placeholder="Driver name *"
-            />
-            <input
-              v-model="driverAssignState[order.id].phone"
-              class="w-full border rounded px-2 py-1 text-sm"
-              placeholder="Driver phone (optional)"
-            />
-            <div class="flex gap-2">
-              <button
-                class="flex-1 px-3 py-1 rounded bg-green-600 text-white text-sm"
-                @click="assignDriver(order)"
-              >
-                Confirm
-              </button>
-              <button
-                class="px-3 py-1 border rounded text-sm"
-                @click="driverAssignState[order.id].open = false"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+          <p v-else class="text-xs text-gray-400">No active drivers. Add one in User Management.</p>
         </div>
       </div>
     </div>

@@ -33,9 +33,9 @@ function getClient() {
   return clientPromise;
 }
 
-export async function subscribeOrders(handlers) {
+async function subscribeChannel(name, handlers) {
   const client = await getClient();
-  const channel = client.channels.get('orders');
+  const channel = client.channels.get(name);
   const bound = [];
   for (const [event, fn] of Object.entries(handlers)) {
     const listener = (msg) => fn(msg.data);
@@ -45,6 +45,16 @@ export async function subscribeOrders(handlers) {
   return () => {
     for (const [event, listener] of bound) channel.unsubscribe(event, listener);
   };
+}
+
+// Staff and drivers: every order event plus driverRouteUpdated.
+export function subscribeOrders(handlers) {
+  return subscribeChannel('orders', handlers);
+}
+
+// Customers: only their own orders (orderStatusUpdated, orderDriverAssigned, deliveryUpdate).
+export function subscribeCustomer(userId, handlers) {
+  return subscribeChannel(`customer:${userId}`, handlers);
 }
 
 export async function subscribeDelivery(orderId, handlers) {

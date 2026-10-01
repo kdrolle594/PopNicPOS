@@ -231,18 +231,30 @@ export function usePosStore() {
     }
   }
 
-  async function updateOrderDriver(orderId, driverName, driverPhone) {
+  async function updateOrderDriver(orderId, driverUserId) {
     try {
-      await api(`/orders/${orderId}/driver`, {
+      const claimed = await api(`/orders/${orderId}/driver`, {
         method: 'PUT',
-        body: { driverName, driverPhone },
+        body: { driverUserId },
       });
       state.orders = state.orders.map((o) =>
-        o.id !== orderId ? o : { ...o, driverName, driverPhone }
+        o.id !== orderId ? o : {
+          ...o,
+          status: claimed.status,
+          driverUserId: claimed.driverUserId,
+          driverName: claimed.driverName,
+          driverPhone: claimed.driverPhone,
+        }
       );
+      return claimed;
     } catch (err) {
       console.error('Failed to assign driver:', err);
+      throw err;
     }
+  }
+
+  async function fetchDrivers() {
+    return api('/orders/drivers');
   }
 
   async function updateOrderStatus(orderId, status) {
@@ -319,6 +331,7 @@ export function usePosStore() {
     addOrder,
     updateOrderStatus,
     updateOrderDriver,
+    fetchDrivers,
     addMenuItem,
     updateMenuItem,
     deleteMenuItem,
