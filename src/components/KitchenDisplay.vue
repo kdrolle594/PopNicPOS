@@ -13,6 +13,23 @@ const activeOrders = computed(() =>
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 );
 
+// Staff recovery for deliveries stuck on the road (e.g. the driver's phone died).
+const onTheRoad = computed(() =>
+  state.orders
+    .filter((order) => order.status === 'out_for_delivery')
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+);
+
+function markDelivered(order) {
+  if (!window.confirm(`Mark order #${order.orderNumber} as delivered?`)) return;
+  updateOrderStatus(order.id, 'completed');
+}
+
+function cancelOnTheRoad(order) {
+  if (!window.confirm(`Cancel order #${order.orderNumber}? It is already out for delivery.`)) return;
+  updateOrderStatus(order.id, 'cancelled');
+}
+
 const counts = computed(() => ({
   pending: state.orders.filter((o) => o.status === 'pending').length,
   preparing: state.orders.filter((o) => o.status === 'preparing').length,
@@ -54,7 +71,8 @@ async function loadDrivers() {
   try {
     drivers.value = await fetchDrivers();
   } catch {
-    drivers.value = [];
+    // Keep the previous list so an assignment in progress isn't lost.
+    toast.error('Could not load drivers');
   }
 }
 
@@ -162,7 +180,7 @@ onUnmounted(() => {
             {{ nextLabel(order.status) }}
           </button>
           <button
-            v-if="order.status === 'pending'"
+            v-if="order.status === 'pending' || (order.status === 'ready' && order.orderType === 'delivery')"
             class="px-3 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
             @click="updateOrderStatus(order.id, 'cancelled')"
           >
@@ -191,6 +209,38 @@ onUnmounted(() => {
             </button>
           </div>
           <p v-else class="text-xs text-gray-400">No active drivers. Add one in User Management.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- On the road — staff can complete or cancel a stuck delivery -->
+    <div v-if="onTheRoad.length" class="space-y-3">
+      <h2 class="text-xl font-semibold">On the road</h2>
+      <div class="bg-white rounded-xl border divide-y">
+        <div
+          v-for="order in onTheRoad"
+          :key="order.id"
+          class="p-4 flex flex-col md:flex-row md:items-center gap-3"
+        >
+          <div class="flex-1 text-sm space-y-1">
+            <p class="font-semibold">Order #{{ order.orderNumber }}<span v-if="order.customerName" class="font-normal text-gray-500"> · {{ order.customerName }}</span></p>
+            <p class="text-gray-500">Driver: <span class="text-gray-800">{{ order.driverName || 'Unknown' }}</span></p>
+            <p class="text-gray-500">{{ order.deliveryAddress || 'No address notes' }}</p>
+          </div>
+          <div class="flex gap-2">
+            <button
+              class="px-3 py-2 rounded-lg border hover:bg-gray-50"
+              @click="markDelivered(order)"
+            >
+              Mark delivered
+            </button>
+            <button
+              class="px-3 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
+              @click="cancelOnTheRoad(order)"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>

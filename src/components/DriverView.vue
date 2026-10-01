@@ -165,9 +165,23 @@ onMounted(async () => {
     orderDriverAssigned: ({ orderId, driverUserId, driverName, driverPhone }) => {
       orders.value = orders.value.map((o) => (o.id === orderId ? { ...o, driverUserId, driverName, driverPhone } : o));
     },
-    // Someone else changed my route (staff assign/cancel): rebuild from the server.
-    driverRouteUpdated: ({ driverUserId }) => {
-      if (driverUserId === me.value) loadOrders();
+    // My route changed. Refetch only when the set of stops changed (staff
+    // assign/cancel); re-plans caused by my own location posts just reorder.
+    driverRouteUpdated: ({ driverUserId, stops = [] }) => {
+      if (driverUserId !== me.value) return;
+      const idsKey = (list) => list.map((s) => s.orderId).sort((a, b) => a - b).join(',');
+      if (idsKey(stops) !== idsKey(route.value.stops)) {
+        loadOrders();
+        return;
+      }
+      const byId = new Map(stops.map((s) => [s.orderId, s]));
+      const next = route.value.stops
+        .map((s) => {
+          const ev = byId.get(s.orderId);
+          return ev ? { ...s, position: ev.position, etaAt: ev.etaAt } : s;
+        })
+        .sort((a, b) => a.position - b.position);
+      route.value = { ...route.value, stops: next };
     },
   });
 });
@@ -220,6 +234,7 @@ onUnmounted(() => {
       <!-- Available -->
       <div v-else-if="tab === 'available'" class="space-y-3">
         <p v-if="!available.length" class="text-center text-gray-400 py-8">No orders ready for delivery.</p>
+        <p v-else-if="permission === 'unknown'" class="text-xs text-gray-400">Waiting for your location…</p>
         <div v-for="order in available" :key="order.id" class="border rounded-xl p-4 space-y-2">
           <div class="flex items-center justify-between">
             <p class="font-semibold">Order #{{ order.orderNumber }}</p>

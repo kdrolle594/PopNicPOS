@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, inject, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, inject, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import { subscribeCustomer } from '../../lib/realtime.js';
 import { queueMessage, formatEta } from '../../lib/delivery.js';
@@ -191,9 +191,13 @@ async function fetchOrders() {
 // ── Realtime subscription ─────────────────────────────────────────────────────
 
 // Only customers have a private channel; staff viewing the storefront skip realtime.
-async function connectRealtime() {
-  if (auth.state.role !== 'customer' || !auth.state.appUser?.id) return;
-  unsubscribeOrders = await subscribeCustomer(auth.state.appUser.id, {
+// The role may resolve after mount, so a watch subscribes once it is known.
+let subscribed = false;
+let unmounted = false;
+async function connectRealtime(role, userId) {
+  if (subscribed || role !== 'customer' || !userId) return;
+  subscribed = true;
+  const unsubscribe = await subscribeCustomer(userId, {
     orderStatusUpdated: ({ orderId, status }) => {
       const order = orders.value.find((o) => o.id === orderId);
       if (order) order.status = status;
@@ -208,17 +212,25 @@ async function connectRealtime() {
       updates[update.orderId] = { ...update, receivedAt: Date.now() };
     },
   });
+  if (unmounted) { if (unsubscribe) unsubscribe(); return; }
+  unsubscribeOrders = unsubscribe;
 }
+
+watch(
+  () => [auth.state.role, auth.state.appUser?.id],
+  ([role, userId]) => { connectRealtime(role, userId); },
+  { immediate: true }
+);
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
   tick = setInterval(() => { now.value = Date.now(); }, 30_000);
   await fetchOrders();
-  connectRealtime();
 });
 
 onUnmounted(() => {
+  unmounted = true;
   clearInterval(tick);
   if (unsubscribeOrders) { unsubscribeOrders(); unsubscribeOrders = null; }
 });

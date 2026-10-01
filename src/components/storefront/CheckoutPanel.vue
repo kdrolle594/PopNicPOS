@@ -46,7 +46,8 @@ function requestLocation() {
     },
     () => {
       geoStatus.value = 'denied';
-    }
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 }
 

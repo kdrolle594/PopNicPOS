@@ -55,6 +55,7 @@ const STATUS = {
   pending:   { bg: '#FFF7ED', text: '#C2410C', dot: '#F97316' },
   preparing: { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
   ready:     { bg: '#F0FDF4', text: '#15803D', dot: '#22C55E' },
+  out_for_delivery: { bg: '#ECFEFF', text: '#0E7490', dot: '#06B6D4' },
   completed: { bg: '#F5F3FF', text: '#6D28D9', dot: '#8B5CF6' },
   cancelled: { bg: '#FFF1F2', text: '#9F1239', dot: '#E11D48' },
 };
@@ -178,7 +179,7 @@ const STAT_CARDS = computed(() => [
                   class="status-badge__dot"
                   :style="{ background: (STATUS[order.status] || STATUS.pending).dot }"
                 ></span>
-                {{ order.status }}
+                {{ order.status.replace(/_/g, ' ') }}
               </span>
             </div>
           </div>
