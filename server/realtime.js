@@ -24,12 +24,22 @@ export function emitNewOrder(order) {
   return publish('orders', 'newOrder', order);
 }
 
-export function emitOrderStatusUpdated(orderId, status) {
-  return publish('orders', 'orderStatusUpdated', { orderId, status });
+// Staff get every status change; the order's own customer (if it belongs to an
+// account) gets it on their private channel.
+export async function emitOrderStatusUpdated(orderId, status, customerUserId = null) {
+  await publish('orders', 'orderStatusUpdated', { orderId, status });
+  if (customerUserId != null) {
+    await publish(`customer:${customerUserId}`, 'orderStatusUpdated', { orderId, status });
+  }
 }
 
-export function emitOrderDriverAssigned(orderId, driver) {
-  return publish('orders', 'orderDriverAssigned', { orderId, ...driver });
+// The customer copy leaves out the driver's user id.
+export async function emitOrderDriverAssigned(orderId, driver, customerUserId = null) {
+  const { driverUserId = null, driverName = null, driverPhone = null } = driver;
+  await publish('orders', 'orderDriverAssigned', { orderId, driverUserId, driverName, driverPhone });
+  if (customerUserId != null) {
+    await publish(`customer:${customerUserId}`, 'orderDriverAssigned', { orderId, driverName, driverPhone });
+  }
 }
 
 // Clients refetch GET /api/menu-items on this event, so the payload is empty.
@@ -37,14 +47,19 @@ export function emitMenuChanged() {
   return publish('menu', 'menuChanged', {});
 }
 
-// Channel rights per caller. Guests may only watch menu availability.
+// Sends the messages built by server/lib/driverRoute.js buildPublishes().
+export async function emitRoutePublishes(publishes) {
+  await Promise.all(publishes.map((p) => publish(p.channel, p.event, p.data)));
+}
+
+// Channel rights per caller. Nobody publishes from a browser; customers only
+// see their own private channel.
 export function capabilityFor(user) {
   if (!user) return { menu: ['subscribe'] };
-  return {
-    menu: ['subscribe'],
-    orders: ['subscribe'],
-    'delivery:*': user.role === 'driver' ? ['publish', 'subscribe'] : ['subscribe'],
-  };
+  if (user.role === 'customer') {
+    return { menu: ['subscribe'], [`customer:${user.id}`]: ['subscribe'] };
+  }
+  return { menu: ['subscribe'], orders: ['subscribe'] };
 }
 
 export function createTokenRequest({ clientId, capability }) {

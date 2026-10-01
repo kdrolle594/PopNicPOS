@@ -6,12 +6,20 @@ describe('capabilityFor', () => {
     expect(capabilityFor(undefined)).toEqual({ menu: ['subscribe'] });
     expect(capabilityFor(null)).toEqual({ menu: ['subscribe'] });
   });
-  it('keeps existing rights for signed-in users and adds menu', () => {
-    expect(capabilityFor({ role: 'customer' })).toEqual({
-      menu: ['subscribe'], orders: ['subscribe'], 'delivery:*': ['subscribe'],
+  it('gives a customer only menu and their own channel', () => {
+    expect(capabilityFor({ id: 42, role: 'customer' })).toEqual({
+      menu: ['subscribe'], 'customer:42': ['subscribe'],
     });
   });
-  it('lets drivers publish delivery positions', () => {
-    expect(capabilityFor({ role: 'driver' })['delivery:*']).toEqual(['publish', 'subscribe']);
+  it('gives staff and drivers menu and orders', () => {
+    for (const role of ['cashier', 'kitchen', 'manager', 'admin', 'driver']) {
+      expect(capabilityFor({ id: 7, role })).toEqual({ menu: ['subscribe'], orders: ['subscribe'] });
+    }
+  });
+  it('never grants publish', () => {
+    for (const user of [null, { id: 1, role: 'customer' }, { id: 2, role: 'driver' }, { id: 3, role: 'admin' }]) {
+      const rights = Object.values(capabilityFor(user)).flat();
+      expect(rights).not.toContain('publish');
+    }
   });
 });
