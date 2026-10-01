@@ -1,16 +1,20 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { emitNewOrder, emitOrderStatusUpdated, emitOrderDriverAssigned, emitMenuChanged } from '../realtime.js';
+import {
+  emitNewOrder, emitOrderStatusUpdated, emitOrderDriverAssigned, emitMenuChanged, emitRoutePublishes,
+} from '../realtime.js';
 import { resolveLine, OrderLineError, snapshotStock } from '../lib/orderOptions.js';
 import { totalStockNeeds, findShortfall, crossesThreshold } from '../lib/availability.js';
 import { loadOptionData, loadStock, loadThresholds, groupsForItem } from '../lib/optionData.js';
 
-import { deliveryPinError, STAFF_ASSIGN_ROLES } from '../lib/orderRules.js';
+import {
+  deliveryPinError, STAFF_ASSIGN_ROLES, canChangeStatus, canRelease, resolveClaim,
+} from '../lib/orderRules.js';
+import { recalculateDriverRoute } from '../lib/driverRoute.js';
 
 const router = Router();
 
 const STAFF_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin', 'driver']);
-const DRIVER_ASSIGN_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin']);
 const VALID_STATUSES = new Set(['pending', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
 const VALID_ORDER_TYPES = new Set(['dine_in', 'pickup', 'delivery']);
 const MAX_ITEM_QUANTITY = 100;
@@ -23,6 +27,11 @@ function parseCustomizations(raw) {
   } catch {
     return {};
   }
+}
+
+// Lock order: driver_location before customer_order (see recalculateDriverRoute).
+async function lockDriver(conn, driverUserId) {
+  await conn.query('SELECT driver_user_id FROM driver_location WHERE driver_user_id = ? FOR UPDATE', [driverUserId]);
 }
 
 // GET /api/orders — list all orders with line items
@@ -416,32 +425,32 @@ router.put('/:id/status', async (req, res) => {
       return res.status(400).json({ error: `status must be one of: ${[...VALID_STATUSES].join(', ')}` });
     }
 
-    const [[current]] = await conn.query(
-      'SELECT status, customer_user_id FROM customer_order WHERE id = ? FOR UPDATE',
-      [orderId]
-    );
-    if (!current) {
+    // Learn the order's driver without a lock, lock that driver first, then the
+    // order (lock-order rule), and bail out if the driver changed in between.
+    const [[peek]] = await conn.query('SELECT driver_user_id FROM customer_order WHERE id = ?', [orderId]);
+    if (!peek) {
       await conn.rollback();
       return res.status(404).json({ error: 'Order not found' });
     }
+    if (peek.driver_user_id != null) await lockDriver(conn, peek.driver_user_id);
 
-    // Customers may only cancel their own orders
-    if (req.user.role === 'customer') {
-      if (current.customer_user_id !== req.user.id) {
-        await conn.rollback();
-        return res.status(403).json({ error: 'Cannot modify another customer\'s order' });
-      }
-      if (status !== 'cancelled') {
-        await conn.rollback();
-        return res.status(403).json({ error: 'Customers can only cancel orders' });
-      }
+    const [[current]] = await conn.query(
+      'SELECT status, customer_user_id, driver_user_id FROM customer_order WHERE id = ? FOR UPDATE',
+      [orderId]
+    );
+    if ((current.driver_user_id ?? null) !== (peek.driver_user_id ?? null)) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Order changed, try again' });
     }
 
-    // Cancelling restocks inventory; reactivating would not re-deduct it,
-    // so a cancelled order is terminal.
-    if (current.status === 'cancelled' && status !== 'cancelled') {
+    const verdict = canChangeStatus(
+      req.user,
+      { status: current.status, customerUserId: current.customer_user_id, driverUserId: current.driver_user_id },
+      status
+    );
+    if (!verdict.ok) {
       await conn.rollback();
-      return res.status(409).json({ error: 'Cancelled orders cannot be reactivated' });
+      return res.status(verdict.code).json({ error: verdict.error });
     }
 
     const isCancelling = status === 'cancelled' && current.status !== 'cancelled';
@@ -491,11 +500,24 @@ router.put('/:id/status', async (req, res) => {
       await conn.query('UPDATE customer_order SET status = ? WHERE id = ?', [status, orderId]);
     }
 
+    // Leaving a route: clear this stop and re-plan the driver's remaining stops.
+    let routeResult = null;
+    if (current.status === 'out_for_delivery' && status !== 'out_for_delivery') {
+      await conn.query('UPDATE customer_order SET queue_position = NULL, eta_at = NULL WHERE id = ?', [orderId]);
+      routeResult = await recalculateDriverRoute(conn, current.driver_user_id, { force: true });
+    }
+
     await conn.commit();
     if (crossesThreshold(stockChanges, thresholds)) await emitMenuChanged();
 
-    emitOrderStatusUpdated(orderId, status);
-    res.json({ id: orderId, status, completedAt: completedAt ?? null });
+    await emitOrderStatusUpdated(orderId, status, current.customer_user_id);
+    if (routeResult) await emitRoutePublishes(routeResult.publishes);
+    res.json({
+      id: orderId,
+      status,
+      completedAt: completedAt ?? null,
+      route: routeResult && current.driver_user_id === req.user.id ? routeResult.route : null,
+    });
   } catch (err) {
     await conn.rollback();
     console.error(err);
@@ -505,64 +527,117 @@ router.put('/:id/status', async (req, res) => {
   }
 });
 
-// PUT /api/orders/:id/driver — assign driver to a delivery order.
-// Staff may assign anyone; a driver may only claim an order for themselves, so
-// their name/phone are taken from their own account rather than the request body.
+// PUT /api/orders/:id/driver — claim a ready delivery onto a driver's route.
+// Drivers, managers and admins send {} to claim for themselves; cashier,
+// kitchen, manager and admin send { driverUserId } to assign a driver.
 router.put('/:id/driver', async (req, res) => {
-  const role = req.user?.role;
-  const isSelfAssigningDriver = role === 'driver';
-  if (!isSelfAssigningDriver && !DRIVER_ASSIGN_ROLES.has(role)) {
-    return res.status(403).json({ error: 'Driver assignment requires driver, cashier, kitchen, manager, or admin role' });
-  }
-
   const orderId = Number(req.params.id);
   if (!Number.isInteger(orderId) || orderId < 1) {
     return res.status(400).json({ error: 'Invalid order id' });
   }
+  const claim = resolveClaim(req.user, req.body);
+  if (!claim.ok) return res.status(claim.code).json({ error: claim.error });
 
+  const conn = await pool.getConnection();
   try {
-    let driverName, driverPhone;
+    await conn.beginTransaction();
+    await lockDriver(conn, claim.driverUserId);
 
-    if (isSelfAssigningDriver) {
-      driverName  = req.user.name || null;
-      driverPhone = req.user.phone || null;
-      if (!driverName) {
-        return res.status(400).json({ error: 'Your account has no name set — ask an admin to update your profile.' });
-      }
-      // A driver may claim an unassigned order, or re-confirm one already theirs,
-      // but must not steal a delivery another driver is already running.
-      const [[current]] = await pool.query(
-        'SELECT driver_name FROM customer_order WHERE id = ?',
-        [orderId]
-      );
-      if (!current) return res.status(404).json({ error: 'Order not found' });
-      if (current.driver_name && current.driver_name !== driverName) {
-        return res.status(409).json({ error: 'This order is already assigned to another driver' });
-      }
-    } else {
-      ({ driverName, driverPhone } = req.body);
-      if ((driverName != null && typeof driverName !== 'string') ||
-          (driverPhone != null && typeof driverPhone !== 'string') ||
-          (driverName || '').length > 100 || (driverPhone || '').length > 30) {
-        return res.status(400).json({ error: 'Invalid driver name or phone' });
-      }
-      driverName  = driverName  || null;
-      driverPhone = driverPhone || null;
+    const [[driver]] = await conn.query(
+      `SELECT u.id, u.display_name, u.email, u.phone, u.is_active, ep.role
+         FROM app_user u LEFT JOIN employee_profile ep ON ep.user_id = u.id
+        WHERE u.id = ?`,
+      [claim.driverUserId]
+    );
+    if (!claim.self && (!driver || !driver.is_active || driver.role !== 'driver')) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'That user is not an active driver' });
     }
+    const driverName = driver.display_name || driver.email;
+    const driverPhone = driver.phone || null;
 
-    const [result] = await pool.query(
-      'UPDATE customer_order SET driver_name = ?, driver_phone = ? WHERE id = ?',
-      [driverName, driverPhone, orderId]
+    const [result] = await conn.query(
+      `UPDATE customer_order
+          SET driver_user_id = ?, driver_name = ?, driver_phone = ?,
+              status = 'out_for_delivery', queue_position = NULL, eta_at = NULL
+        WHERE id = ? AND order_type = 'delivery' AND status = 'ready'
+          AND delivery_lat IS NOT NULL AND delivery_lng IS NOT NULL AND driver_user_id IS NULL`,
+      [claim.driverUserId, driverName, driverPhone, orderId]
     );
     if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Order not found' });
+      const [[exists]] = await conn.query('SELECT id FROM customer_order WHERE id = ?', [orderId]);
+      await conn.rollback();
+      return exists
+        ? res.status(409).json({ error: 'Already taken or not ready for delivery' })
+        : res.status(404).json({ error: 'Order not found' });
     }
 
-    emitOrderDriverAssigned(orderId, { driverName, driverPhone });
-    res.json({ id: orderId, driverName, driverPhone });
+    const [[order]] = await conn.query('SELECT customer_user_id FROM customer_order WHERE id = ?', [orderId]);
+    const { route, publishes } = await recalculateDriverRoute(conn, claim.driverUserId, { force: true });
+    await conn.commit();
+
+    await emitOrderStatusUpdated(orderId, 'out_for_delivery', order.customer_user_id);
+    await emitOrderDriverAssigned(
+      orderId, { driverUserId: claim.driverUserId, driverName, driverPhone }, order.customer_user_id
+    );
+    await emitRoutePublishes(publishes);
+    res.json({
+      id: orderId, status: 'out_for_delivery',
+      driverUserId: claim.driverUserId, driverName, driverPhone, route,
+    });
   } catch (err) {
+    await conn.rollback();
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+// DELETE /api/orders/:id/driver — the assigned driver hands the order back.
+router.delete('/:id/driver', async (req, res) => {
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId) || orderId < 1) {
+    return res.status(400).json({ error: 'Invalid order id' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await lockDriver(conn, req.user.id);
+    const [[order]] = await conn.query(
+      'SELECT status, driver_user_id, customer_user_id FROM customer_order WHERE id = ? FOR UPDATE',
+      [orderId]
+    );
+    if (!order) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const verdict = canRelease(req.user, { status: order.status, driverUserId: order.driver_user_id });
+    if (!verdict.ok) {
+      await conn.rollback();
+      return res.status(verdict.code).json({ error: verdict.error });
+    }
+
+    await conn.query(
+      `UPDATE customer_order
+          SET status = 'ready', driver_user_id = NULL, driver_name = NULL, driver_phone = NULL,
+              queue_position = NULL, eta_at = NULL
+        WHERE id = ?`,
+      [orderId]
+    );
+    const { route, publishes } = await recalculateDriverRoute(conn, req.user.id, { force: true });
+    await conn.commit();
+
+    await emitOrderStatusUpdated(orderId, 'ready', order.customer_user_id);
+    await emitOrderDriverAssigned(orderId, { driverUserId: null, driverName: null, driverPhone: null }, order.customer_user_id);
+    await emitRoutePublishes(publishes);
+    res.json({ id: orderId, status: 'ready', route });
+  } catch (err) {
+    await conn.rollback();
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    conn.release();
   }
 });
 
