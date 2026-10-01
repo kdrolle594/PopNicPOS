@@ -1,7 +1,8 @@
 <script setup>
-import { ref, inject, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, inject, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '../../store/useAuthStore.js';
-import { subscribeOrders } from '../../lib/realtime.js';
+import { subscribeCustomer } from '../../lib/realtime.js';
+import { queueMessage, formatEta } from '../../lib/delivery.js';
 import UiCard from '../ui/UiCard.vue';
 import UiBadge from '../ui/UiBadge.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
@@ -21,6 +22,9 @@ const mapOrderId = ref(null);
 const mapOpen = ref(false);
 const mapCustomerLat = ref(null);
 const mapCustomerLng = ref(null);
+const updates = reactive({}); // orderId -> latest deliveryUpdate + receivedAt
+const now = ref(Date.now());
+let tick = null;
 
 let unsubscribeOrders = null;
 
@@ -52,8 +56,6 @@ function statusLabel(status) {
 
 // ── Timeline helpers (ported from CustomerView) ───────────────────────────────
 
-const statusOrder = { pending: 0, preparing: 1, ready: 2, completed: 3 };
-
 function timelineSteps(order) {
   if (order.orderType === 'pickup') {
     return [
@@ -64,10 +66,11 @@ function timelineSteps(order) {
     ];
   }
   return [
-    { status: 'pending',   label: 'Order\nReceived' },
-    { status: 'preparing', label: 'Preparing' },
-    { status: 'ready',     label: 'Out for\nDelivery' },
-    { status: 'completed', label: 'Delivered' },
+    { status: 'pending',          label: 'Order\nReceived' },
+    { status: 'preparing',        label: 'Preparing' },
+    { status: 'ready',            label: 'Ready' },
+    { status: 'out_for_delivery', label: 'On the\nway' },
+    { status: 'completed',        label: 'Delivered' },
   ];
 }
 
@@ -84,23 +87,38 @@ function etaMap(order) {
   return {
     pending:   'Est. 45–55 min',
     preparing: 'Est. 30–40 min',
-    ready:     'Est. 10–20 min',
+    ready:     'Waiting for a driver',
+    out_for_delivery: '',
     completed: 'Delivered',
     cancelled: 'Order cancelled',
   };
 }
 
+function currentIndex(order) {
+  return timelineSteps(order).findIndex((s) => s.status === order.status);
+}
+
 function stepState(order, stepStatus) {
-  const cur = statusOrder[order.status] ?? -1;
-  const idx = statusOrder[stepStatus] ?? 0;
+  const cur = currentIndex(order);
+  const idx = timelineSteps(order).findIndex((s) => s.status === stepStatus);
   if (idx < cur) return 'done';
   if (idx === cur) return 'active';
   return 'pending';
 }
 
 function timelineLineWidth(order) {
-  const widths = { pending: '0%', preparing: '33%', ready: '66%', completed: '100%' };
-  return widths[order.status] || '0%';
+  const cur = Math.max(0, currentIndex(order));
+  return `${(cur / (timelineSteps(order).length - 1)) * 100}%`;
+}
+
+// Live values from the newest deliveryUpdate, falling back to GET /api/orders.
+function liveQueue(order) {
+  const u = updates[order.id];
+  return {
+    position: u?.position ?? order.queuePosition ?? null,
+    totalStops: u?.totalStops ?? order.totalStops ?? null,
+    etaAt: u?.etaAt ?? order.etaAt ?? null,
+  };
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -142,6 +160,8 @@ function openMap(order) {
   mapOpen.value = true;
 }
 
+const mapUpdate = computed(() => (mapOrderId.value != null ? updates[mapOrderId.value] ?? null : null));
+
 function closeMap() {
   mapOpen.value = false;
   mapOrderId.value = null;
@@ -170,19 +190,22 @@ async function fetchOrders() {
 
 // ── Realtime subscription ─────────────────────────────────────────────────────
 
+// Only customers have a private channel; staff viewing the storefront skip realtime.
 async function connectRealtime() {
-  unsubscribeOrders = await subscribeOrders({
+  if (auth.state.role !== 'customer' || !auth.state.appUser?.id) return;
+  unsubscribeOrders = await subscribeCustomer(auth.state.appUser.id, {
     orderStatusUpdated: ({ orderId, status }) => {
       const order = orders.value.find((o) => o.id === orderId);
       if (order) order.status = status;
+      if (status !== 'out_for_delivery') delete updates[orderId];
+      if (status === 'completed' && mapOrderId.value === orderId) closeMap();
     },
-    orderDriverAssigned: ({ orderId, driverId, driverName, driverPhone }) => {
+    orderDriverAssigned: ({ orderId, driverName, driverPhone }) => {
       const order = orders.value.find((o) => o.id === orderId);
-      if (order) {
-        order.driverId    = driverId;
-        order.driverName  = driverName;
-        order.driverPhone = driverPhone;
-      }
+      if (order) { order.driverName = driverName; order.driverPhone = driverPhone; }
+    },
+    deliveryUpdate: (update) => {
+      updates[update.orderId] = { ...update, receivedAt: Date.now() };
     },
   });
 }
@@ -190,11 +213,13 @@ async function connectRealtime() {
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
+  tick = setInterval(() => { now.value = Date.now(); }, 30_000);
   await fetchOrders();
   connectRealtime();
 });
 
 onUnmounted(() => {
+  clearInterval(tick);
   if (unsubscribeOrders) { unsubscribeOrders(); unsubscribeOrders = null; }
 });
 </script>
@@ -282,20 +307,23 @@ onUnmounted(() => {
               :class="{ 'order-tracker__step-label--active': stepState(order, step.status) === 'active' }"
             >{{ step.label }}</p>
             <p
-              v-if="stepState(order, step.status) === 'active'"
+              v-if="stepState(order, step.status) === 'active' && etaMap(order)[order.status]"
               class="order-tracker__eta"
             >{{ etaMap(order)[order.status] }}</p>
           </div>
         </div>
 
-        <!-- Track delivery CTA -->
-        <div
-          v-if="order.status === 'out_for_delivery' && order.driverId"
-          class="order-tracker__map-cta"
-        >
-          <UiButton variant="secondary" size="sm" @click="openMap(order)">
-            Track delivery
-          </UiButton>
+        <!-- Live delivery block -->
+        <div v-if="order.status === 'out_for_delivery'" class="order-tracker__live" aria-live="polite">
+          <p v-if="queueMessage(liveQueue(order))" class="order-tracker__queue">
+            {{ queueMessage(liveQueue(order)) }}
+          </p>
+          <p class="order-tracker__arrival">{{ formatEta(liveQueue(order).etaAt, new Date(now)) }}</p>
+          <p v-if="order.driverName" class="order-tracker__driver">
+            {{ order.driverName }}
+            <a v-if="order.driverPhone" :href="`tel:${order.driverPhone}`" class="order-tracker__call">Call</a>
+          </p>
+          <UiButton variant="secondary" size="sm" @click="openMap(order)">Track delivery</UiButton>
         </div>
       </UiCard>
     </template>
@@ -307,6 +335,7 @@ onUnmounted(() => {
       :open="mapOpen"
       :customer-lat="mapCustomerLat"
       :customer-lng="mapCustomerLng"
+      :update="mapUpdate"
       @close="closeMap"
     />
   </section>
@@ -509,8 +538,28 @@ onUnmounted(() => {
   margin-top: 2px;
 }
 
-/* Track delivery CTA */
-.order-tracker__map-cta {
+/* Live delivery block */
+.order-tracker__live {
   margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.order-tracker__queue {
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  margin: 0;
+}
+.order-tracker__arrival,
+.order-tracker__driver {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  margin: 0;
+}
+.order-tracker__call {
+  margin-left: var(--space-2);
+  color: var(--primary);
+  font-weight: var(--weight-semibold);
 }
 </style>

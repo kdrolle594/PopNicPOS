@@ -24,7 +24,7 @@ const orderType      = ref(cart.state.orderType || 'delivery');
 const customerName   = ref('');
 const phone          = ref(cart.state.phone || '');
 const notes          = ref(cart.state.deliveryInstructions || '');
-const deliveryAddress = ref('');
+const landmark       = ref('');
 
 // ── Geolocation ─────────────────────────────────────────────────────────────
 // 'idle' | 'locating' | 'captured' | 'denied'
@@ -57,6 +57,13 @@ function retryLocation() {
   requestLocation();
 }
 
+function switchToPickup() {
+  orderType.value = 'pickup';
+  errors.delivery = '';
+}
+
+const hasPin = computed(() => geoLat.value != null && geoLng.value != null);
+
 // ── Chip selection ───────────────────────────────────────────────────────────
 function selectOrderType(type) {
   orderType.value = type;
@@ -69,7 +76,6 @@ function selectOrderType(type) {
 const errors = reactive({ phone: '', delivery: '' });
 
 const phoneRef   = ref(null);
-const addressRef = ref(null);
 
 function validate() {
   errors.phone    = '';
@@ -81,13 +87,9 @@ function validate() {
     valid = false;
   }
 
-  if (orderType.value === 'delivery') {
-    const hasCoords  = geoLat.value != null && geoLng.value != null;
-    const hasAddress = deliveryAddress.value.trim().length > 0;
-    if (!hasCoords && !hasAddress) {
-      errors.delivery = 'Please allow location access or enter a delivery address.';
-      valid = false;
-    }
+  if (orderType.value === 'delivery' && !hasPin.value) {
+    errors.delivery = 'Delivery needs your location. Allow location access or choose pickup.';
+    valid = false;
   }
 
   return valid;
@@ -97,7 +99,9 @@ function validate() {
 const submitting = ref(false);
 
 const canSubmit = computed(() =>
-  cart.state.items.length > 0 && !submitting.value
+  cart.state.items.length > 0 &&
+  !submitting.value &&
+  (orderType.value !== 'delivery' || hasPin.value)
 );
 
 async function submit() {
@@ -106,7 +110,7 @@ async function submit() {
   if (!validate()) {
     await nextTick();
     if (errors.phone)    { phoneRef.value?.focus();   return; }
-    if (errors.delivery) { addressRef.value?.focus(); return; }
+    if (errors.delivery) return;
     return;
   }
 
@@ -132,12 +136,10 @@ async function submit() {
     };
 
     if (orderType.value === 'delivery') {
-      if (geoLat.value != null && geoLng.value != null) {
-        body.deliveryLat = geoLat.value;
-        body.deliveryLng = geoLng.value;
-      }
-      const addr = deliveryAddress.value.trim();
-      if (addr) body.deliveryAddress = addr;
+      body.deliveryLat = geoLat.value;
+      body.deliveryLng = geoLng.value;
+      const place = landmark.value.trim();
+      if (place) body.deliveryAddress = place.slice(0, 200);
     }
 
     const res = await fetch(`${base}/api/orders`, {
@@ -282,48 +284,43 @@ onMounted(async () => {
           </div>
 
           <!-- Captured coordinates -->
-          <div v-else-if="geoStatus === 'captured'" class="co-geo co-geo--captured" aria-live="polite">
-            <UiIcon name="check-circle" :size="16" />
-            <span>Location captured</span>
-            <button
-              type="button"
-              class="co-geo__change"
-              @click="retryLocation"
-            >Use a different location</button>
-          </div>
-
-          <!-- Denied: show text address field -->
-          <template v-else-if="geoStatus === 'denied'">
+          <template v-else-if="geoStatus === 'captured'">
+            <div class="co-geo co-geo--captured" aria-live="polite">
+              <UiIcon name="check-circle" :size="16" />
+              <span>Location captured</span>
+              <button type="button" class="co-geo__change" @click="retryLocation">Use a different location</button>
+            </div>
             <UiField
-              label="Delivery address"
-              :error="errors.delivery"
-              hint="We couldn't access your location. Enter your address below."
-              required
+              label="Apartment, building or landmark"
+              hint="Optional — helps your driver find you."
             >
-              <template #default="{ id, describedBy, invalid }">
+              <template #default="{ id, describedBy }">
                 <input
                   :id="id"
-                  ref="addressRef"
-                  v-model="deliveryAddress"
+                  v-model="landmark"
                   class="co-input"
-                  :class="{ 'co-input--invalid': invalid }"
                   type="text"
-                  autocomplete="street-address"
-                  placeholder="123 Main St, City, State"
+                  maxlength="200"
+                  autocomplete="address-line2"
+                  placeholder="Apt 4B, blue door, behind the gym…"
                   :aria-describedby="describedBy"
-                  :aria-invalid="invalid"
-                  @input="errors.delivery = ''"
                 />
               </template>
             </UiField>
           </template>
 
-          <!-- Validation error when no coords and not denied (edge case) -->
-          <p
-            v-if="errors.delivery && geoStatus !== 'denied'"
-            class="co-geo-error"
-            role="alert"
-          >
+          <!-- Denied: delivery needs a pin -->
+          <div v-else-if="geoStatus === 'denied'" class="co-geo co-geo--denied" role="alert">
+            <p class="co-geo__denied-text">
+              Delivery needs your location. Allow location access for this site in your browser settings, then try again.
+            </p>
+            <div class="co-geo__actions">
+              <UiButton type="button" variant="secondary" size="sm" @click="retryLocation">Try again</UiButton>
+              <UiButton type="button" variant="ghost" size="sm" @click="switchToPickup">Switch to pickup</UiButton>
+            </div>
+          </div>
+
+          <p v-if="errors.delivery && geoStatus !== 'denied'" class="co-geo-error" role="alert">
             {{ errors.delivery }}
           </p>
 
@@ -550,6 +547,14 @@ onMounted(async () => {
   border-color: color-mix(in srgb, var(--positive) 30%, transparent);
   color: var(--ink);
 }
+
+.co-geo--denied {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.co-geo__denied-text { margin: 0; }
+.co-geo__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 .co-geo__spinner {
   display: inline-block;
