@@ -5,11 +5,13 @@ import { resolveLine, OrderLineError, snapshotStock } from '../lib/orderOptions.
 import { totalStockNeeds, findShortfall, crossesThreshold } from '../lib/availability.js';
 import { loadOptionData, loadStock, loadThresholds, groupsForItem } from '../lib/optionData.js';
 
+import { deliveryPinError, STAFF_ASSIGN_ROLES } from '../lib/orderRules.js';
+
 const router = Router();
 
 const STAFF_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin', 'driver']);
 const DRIVER_ASSIGN_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin']);
-const VALID_STATUSES = new Set(['pending', 'preparing', 'ready', 'completed', 'cancelled']);
+const VALID_STATUSES = new Set(['pending', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
 const VALID_ORDER_TYPES = new Set(['dine_in', 'pickup', 'delivery']);
 const MAX_ITEM_QUANTITY = 100;
 
@@ -40,6 +42,24 @@ router.get('/', async (req, res) => {
       [items] = await pool.query('SELECT * FROM order_item WHERE order_id IN (?) ORDER BY id', [orderIds]);
     }
 
+    // Customers see how many stops their driver is carrying, never whose.
+    const stopCounts = new Map();
+    if (isCustomer) {
+      const driverIds = [...new Set(
+        orders.filter((o) => o.status === 'out_for_delivery' && o.driver_user_id != null)
+          .map((o) => o.driver_user_id)
+      )];
+      if (driverIds.length) {
+        const [counts] = await pool.query(
+          `SELECT driver_user_id, COUNT(*) AS n FROM customer_order
+            WHERE status = 'out_for_delivery' AND driver_user_id IN (?)
+            GROUP BY driver_user_id`,
+          [driverIds]
+        );
+        for (const c of counts) stopCounts.set(c.driver_user_id, Number(c.n));
+      }
+    }
+
     const result = orders.map((order) => ({
       id: order.id,
       orderNumber: order.order_number,
@@ -58,6 +78,11 @@ router.get('/', async (req, res) => {
       pointsRedeemed: order.points_redeemed,
       driverName: order.driver_name,
       driverPhone: order.driver_phone,
+      ...(isCustomer
+        ? { totalStops: order.driver_user_id != null ? stopCounts.get(order.driver_user_id) ?? null : null }
+        : { driverUserId: order.driver_user_id ?? null }),
+      queuePosition: order.queue_position ?? null,
+      etaAt: order.eta_at ? new Date(order.eta_at).toISOString() : null,
       createdAt: order.created_at,
       completedAt: order.completed_at,
       items: items
@@ -74,6 +99,28 @@ router.get('/', async (req, res) => {
     }));
 
     res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/orders/drivers — active driver accounts and how many stops each is carrying.
+router.get('/drivers', async (req, res) => {
+  if (!STAFF_ASSIGN_ROLES.has(req.user?.role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.id, COALESCE(NULLIF(u.display_name, ''), u.email) AS name, u.phone,
+              (SELECT COUNT(*) FROM customer_order o
+                WHERE o.driver_user_id = u.id AND o.status = 'out_for_delivery') AS activeStops
+         FROM app_user u
+         JOIN employee_profile ep ON ep.user_id = u.id
+        WHERE ep.role = 'driver' AND u.is_active = 1
+        ORDER BY name`
+    );
+    res.json(rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || null, activeStops: Number(r.activeStops) })));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -117,6 +164,12 @@ router.post('/', async (req, res) => {
         (lng != null && (!isFinite(lng) || Math.abs(lng) > 180))) {
       await conn.rollback();
       return res.status(400).json({ error: 'Invalid delivery coordinates' });
+    }
+
+    const pinError = deliveryPinError(orderType, lat, lng);
+    if (pinError) {
+      await conn.rollback();
+      return res.status(400).json({ error: pinError });
     }
 
     const isStaff = STAFF_ROLES.has(req.user?.role);
