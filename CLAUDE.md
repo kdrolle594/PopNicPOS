@@ -66,7 +66,7 @@ Auth0 is initialized in `src/main.js` via `createAuth0({ domain, clientId, audie
 
 Key views and their roles:
 - **POS Terminal** — order creation (cashier, manager, admin)
-- **Kitchen Display** (`KitchenDisplay.vue`) — real-time order queue, status progression (pending → preparing → ready → completed), driver assignment (kitchen, cashier, manager, admin)
+- **Kitchen Display** (`KitchenDisplay.vue`) — real-time order queue, status progression (pending → preparing → ready → completed), a driver dropdown on ready delivery orders, and an "On the road" section listing `out_for_delivery` orders. Delivery orders are completed by the driver, or by staff from "On the road" (Mark delivered / Cancel) when a delivery gets stuck (kitchen, cashier, manager, admin)
 - **Storefront** (`StorefrontShell.vue` + `src/components/storefront/`) — menu browsing, item customization, cart, checkout, order tracking with a lazy-loaded Leaflet map (`DeliveryMap.vue`) (guests + customer)
 - **Driver Portal** (`DriverView.vue`) — Available / My route tabs; drivers (and managers/admins) add several ready deliveries to one route; the portal posts GPS to `POST /api/driver/location` every 10 s while it has stops, and the server orders stops nearest-first (`server/lib/deliveryQueue.js`), gets road times/geometry from OpenRouteService (`server/lib/routing.js`), and stores `queue_position`/`eta_at` (driver, manager, admin)
 - **User Management** (`UserManagement.vue`) — admin only
@@ -88,7 +88,7 @@ Route-level auth policy is set in `server/app.js` — e.g. `GET /api/menu-items`
 
 Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib/realtime.js`). Browsers never publish; only the server does.
 - `orders` channel (staff and drivers): `newOrder`, `orderStatusUpdated`, `orderDriverAssigned`, `driverRouteUpdated`
-- `customer:{userId}` channel (that customer only): `orderStatusUpdated`, `orderDriverAssigned`, `deliveryUpdate` — built only by `buildPublishes` in `server/lib/driverRoute.js`, and never containing another customer's data
+- `customer:{userId}` channel (that customer only): `orderStatusUpdated`, `orderDriverAssigned`, `deliveryUpdate`. `deliveryUpdate` is built only by `buildPublishes` in `server/lib/driverRoute.js`; `orderStatusUpdated` and `orderDriverAssigned` come from the emit helpers in `server/realtime.js`. None of them ever contains another customer's data
 - `menu` channel: the server publishes an empty `menuChanged` after menu/option/inventory edits and when an order or cancellation moves stock across an availability threshold; clients refetch `GET /api/menu-items`.
 - `GET /api/realtime/token` works for guests (subscribe-only on `menu`); customers get `menu` + their own `customer:{id}`; staff and drivers get `menu` + `orders`.
 
@@ -98,7 +98,7 @@ Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib
 
 Menu options: `option_group` / `option_choice` / `menu_item_option_group` hold item options. A choice is available when switched on and its linked stock covers `inventory_qty`; an item is `soldOut` when switched off, short on a recipe ingredient, or a required group has no available choice (`server/lib/availability.js`).
 
-Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/:id/driver`) → `completed`. Status permission rules live in `server/lib/orderRules.js`. `driver_location` holds one row per driver with a non-empty route and is deleted when the route empties.
+Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/:id/driver`) → `completed`; staff can also move `out_for_delivery` → `cancelled`. Status permission rules live in `server/lib/orderRules.js`. `driver_location` holds one row per driver with a non-empty route and is deleted when the route empties. Every route-changing transaction (claim, release, status change, `POST /api/driver/location`) first calls `lockDriver` (`server/lib/driverRoute.js`), so the lock order is always `app_user` (the driver's row, which always exists) → `driver_location` → `customer_order`.
 
 ### Environment Variables
 
