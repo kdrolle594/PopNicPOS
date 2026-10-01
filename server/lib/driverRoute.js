@@ -111,11 +111,12 @@ export async function recalculateDriverRoute(conn, driverUserId, { force = false
     'SELECT * FROM driver_location WHERE driver_user_id = ? FOR UPDATE',
     [driverUserId]
   );
+  // Locking read: sees the latest committed rows, not a stale REPEATABLE READ snapshot.
   const [rows] = await conn.query(
     `SELECT id, order_number, customer_user_id, customer_name, customer_phone,
             delivery_address, delivery_lat, delivery_lng, queue_position, eta_at
        FROM customer_order
-      WHERE driver_user_id = ? AND status = 'out_for_delivery'`,
+      WHERE driver_user_id = ? AND status = 'out_for_delivery' FOR UPDATE`,
     [driverUserId]
   );
 

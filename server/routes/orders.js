@@ -438,6 +438,10 @@ router.put('/:id/status', async (req, res) => {
       'SELECT status, customer_user_id, driver_user_id FROM customer_order WHERE id = ? FOR UPDATE',
       [orderId]
     );
+    if (!current) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
     if ((current.driver_user_id ?? null) !== (peek.driver_user_id ?? null)) {
       await conn.rollback();
       return res.status(409).json({ error: 'Order changed, try again' });
