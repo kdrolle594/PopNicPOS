@@ -237,6 +237,91 @@ async function run() {
       }
     }
 
+    // 9. Multi-stop delivery: out_for_delivery status, driver identity,
+    // queue position / ETA on the order, and one location row per active driver.
+    const [statusCols] = await conn.query(`
+      SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME   = 'customer_order'
+        AND COLUMN_NAME  = 'status'
+    `);
+    if (statusCols.length === 0) {
+      console.warn('customer_order.status column not found — skipping status enum migration');
+    } else if (statusCols[0].COLUMN_TYPE.includes("'out_for_delivery'")) {
+      console.log('✔  customer_order.status already includes out_for_delivery — skipping');
+    } else {
+      const existing = Array.from(statusCols[0].COLUMN_TYPE.matchAll(/'([^']+)'/g)).map((m) => m[1]);
+      const ordered = ['pending', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'];
+      const next = [...ordered, ...existing.filter((v) => !ordered.includes(v))];
+      const enumList = next.map((v) => `'${v}'`).join(',');
+      await conn.query(
+        `ALTER TABLE customer_order MODIFY COLUMN status ENUM(${enumList}) NOT NULL DEFAULT 'pending'`
+      );
+      console.log('✔  Added out_for_delivery to customer_order.status enum');
+    }
+
+    const [idCol] = await conn.query(`
+      SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_user' AND COLUMN_NAME = 'id'
+    `);
+    const userIdType = idCol[0].COLUMN_TYPE; // FK columns must match exactly, e.g. "bigint"
+
+    // driver_name / driver_phone are used by the existing code but no earlier
+    // step creates them (they were added to the shared DB by hand), so ensure them here.
+    const orderColumns = [
+      ['driver_name', 'VARCHAR(100) NULL'],
+      ['driver_phone', 'VARCHAR(30) NULL'],
+      ['driver_user_id', `${userIdType} NULL`],
+      ['queue_position', 'SMALLINT NULL'],
+      ['eta_at', 'DATETIME NULL'],
+    ];
+    for (const [column, definition] of orderColumns) {
+      const [found] = await conn.query(`
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_order' AND COLUMN_NAME = ?
+      `, [column]);
+      if (found.length) {
+        console.log(`✔  customer_order.${column} already exists — skipping`);
+      } else {
+        await conn.query(`ALTER TABLE customer_order ADD COLUMN ${column} ${definition}`);
+        console.log(`✔  Added ${column} to customer_order`);
+      }
+    }
+
+    const [driverFk] = await conn.query(`
+      SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_order'
+        AND CONSTRAINT_NAME = 'fk_customer_order_driver_user'
+    `);
+    if (driverFk.length) {
+      console.log('✔  customer_order driver FK already exists — skipping');
+    } else {
+      await conn.query(`
+        ALTER TABLE customer_order
+          ADD CONSTRAINT fk_customer_order_driver_user
+          FOREIGN KEY (driver_user_id) REFERENCES app_user(id) ON DELETE SET NULL
+      `);
+      console.log('✔  Added customer_order.driver_user_id FK');
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS driver_location (
+        driver_user_id  ${userIdType} NOT NULL,
+        lat             DECIMAL(10,7) NOT NULL,
+        lng             DECIMAL(10,7) NOT NULL,
+        updated_at      DATETIME      NOT NULL,
+        route_calc_at   DATETIME      NULL,
+        route_calc_lat  DECIMAL(10,7) NULL,
+        route_calc_lng  DECIMAL(10,7) NULL,
+        route_stop_ids  VARCHAR(512)  NULL,
+        route_json      JSON          NULL,
+        PRIMARY KEY (driver_user_id),
+        CONSTRAINT fk_driver_location_user
+          FOREIGN KEY (driver_user_id) REFERENCES app_user(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('✔  driver_location table ready');
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);

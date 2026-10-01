@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS customer_order (
   id                BIGINT        NOT NULL AUTO_INCREMENT,
   order_number      INT           NOT NULL,
   order_type        ENUM('dine_in','pickup','delivery') NOT NULL DEFAULT 'dine_in',
-  status            ENUM('pending','preparing','ready','completed','cancelled') NOT NULL DEFAULT 'pending',
+  status            ENUM('pending','preparing','ready','out_for_delivery','completed','cancelled') NOT NULL DEFAULT 'pending',
   total             DECIMAL(10,2) NOT NULL,
 
   customer_user_id  BIGINT        DEFAULT NULL,
@@ -122,6 +122,13 @@ CREATE TABLE IF NOT EXISTS customer_order (
 
   table_number      INT           DEFAULT NULL,
   delivery_address  TEXT          DEFAULT NULL,
+  delivery_lat      DECIMAL(10,7) DEFAULT NULL,
+  delivery_lng      DECIMAL(10,7) DEFAULT NULL,
+  driver_name       VARCHAR(100)  DEFAULT NULL,
+  driver_phone      VARCHAR(30)   DEFAULT NULL,
+  driver_user_id    BIGINT        DEFAULT NULL,
+  queue_position    SMALLINT      DEFAULT NULL,
+  eta_at            DATETIME      DEFAULT NULL,
   notes             TEXT          DEFAULT NULL,
 
   payment_method    ENUM('cash','card','digital') DEFAULT NULL,
@@ -139,9 +146,26 @@ CREATE TABLE IF NOT EXISTS customer_order (
   INDEX idx_customer_order_customer_user_id (customer_user_id),
   CONSTRAINT fk_order_customer
     FOREIGN KEY (customer_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
+  CONSTRAINT fk_customer_order_driver_user
+    FOREIGN KEY (driver_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
   CONSTRAINT chk_order_total           CHECK (total >= 0),
   CONSTRAINT chk_order_points_earned   CHECK (points_earned >= 0),
   CONSTRAINT chk_order_points_redeemed CHECK (points_redeemed >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS driver_location (
+  driver_user_id  BIGINT        NOT NULL,
+  lat             DECIMAL(10,7) NOT NULL,
+  lng             DECIMAL(10,7) NOT NULL,
+  updated_at      DATETIME      NOT NULL,
+  route_calc_at   DATETIME      NULL,
+  route_calc_lat  DECIMAL(10,7) NULL,
+  route_calc_lng  DECIMAL(10,7) NULL,
+  route_stop_ids  VARCHAR(512)  NULL,
+  route_json      JSON          NULL,
+  PRIMARY KEY (driver_user_id),
+  CONSTRAINT fk_driver_location_user
+    FOREIGN KEY (driver_user_id) REFERENCES app_user(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS order_item (
