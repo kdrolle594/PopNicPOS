@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.js';
 import realtimeRoutes from './routes/realtime.js';
 import usersRoutes from './routes/users.js';
 import { groupsRouter as optionGroupRoutes, choicesRouter as optionChoiceRoutes } from './routes/optionGroups.js';
+import driverRoutes from './routes/driver.js';
 import { jwtCheck, loadUser, requireRole, optionalAuth } from './middleware/auth.js';
 
 const app = express();
@@ -60,6 +61,8 @@ app.use('/api/orders', (req, res, next) => {
   return requireRole('customer', 'cashier', 'kitchen', 'manager', 'admin', 'driver')(req, res, next);
 });
 app.use('/api/orders', orderRoutes);
+
+app.use('/api/driver', jwtCheck, loadUser, requireRole('driver', 'manager', 'admin'), driverRoutes);
 
 app.use('/api/inventory-items', jwtCheck, loadUser, requireRole('manager', 'admin'), inventoryRoutes);
 
