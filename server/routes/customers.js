@@ -200,12 +200,16 @@ router.put('/:id', async (req, res) => {
     }
     const tier = getTier(points || 0);
 
-    await conn.query('UPDATE app_user SET display_name=?, phone=?, email=? WHERE id=?', [
-      name,
-      phone,
-      email || null,
-      req.params.id,
-    ]);
+    // Customer rows only: cashiers must not edit staff accounts (changing an
+    // unlinked employee's email would let anyone claim that role at login).
+    const [userResult] = await conn.query(
+      "UPDATE app_user SET display_name=?, phone=?, email=? WHERE id=? AND user_type = 'customer'",
+      [name, phone, email || null, req.params.id]
+    );
+    if (userResult.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Customer not found' });
+    }
 
     await conn.query(
       `UPDATE customer_profile
@@ -239,7 +243,7 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/customers/:id — cascades to customer_profile
 router.delete('/:id', async (req, res) => {
   try {
-    await pool.query('DELETE FROM app_user WHERE id = ?', [req.params.id]);
+    await pool.query("DELETE FROM app_user WHERE id = ? AND user_type = 'customer'", [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);

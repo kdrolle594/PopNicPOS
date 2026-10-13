@@ -108,8 +108,10 @@ export async function loadUser(req, res, next) {
       // as a customer (step 3). Because auth_uid matching happens first, they would
       // otherwise be stuck on the customer role forever while the admin's
       // pre-registered employee row sits orphaned. Reconcile that here.
-      if (!u.role && u.user_type === 'customer' && u.email && emailVerified === true) {
-        const promoted = await promotePreRegisteredEmployee(u.id, u.email);
+      // Match on the verified token email, never u.email: customers can edit
+      // their stored email through PUT /api/customers/me.
+      if (!u.role && u.user_type === 'customer' && email && emailVerified === true) {
+        const promoted = await promotePreRegisteredEmployee(u.id, email);
         if (promoted) {
           req.user = {
             id:       u.id,

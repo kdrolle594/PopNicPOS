@@ -298,8 +298,10 @@ router.post('/', async (req, res) => {
     let orderNumber, orderId;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        // Locking read: a plain SELECT reuses this transaction's REPEATABLE READ
+        // snapshot, so every retry would compute the same colliding number.
         const [[{ next }]] = await conn.query(
-          'SELECT COALESCE(MAX(order_number), 0) + 1 AS next FROM customer_order'
+          'SELECT COALESCE(MAX(order_number), 0) + 1 AS next FROM customer_order FOR UPDATE'
         );
         const [orderResult] = await conn.query(
           `INSERT INTO customer_order
@@ -415,6 +417,10 @@ router.put('/:id/status', async (req, res) => {
 
     const { status } = req.body;
     const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId < 1) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
 
     if (!VALID_STATUSES.has(status)) {
       await conn.rollback();
