@@ -25,10 +25,13 @@ Scope: `server/`, `shared/`, auth/realtime wiring, dependencies. Tests: 181/181 
 | `POST /api/users` early returns skipped `rollback()`. | Added. |
 | `items: [null]` on `POST /api/orders` → 500. | 400 "Each item must be an object". |
 
+## Bundle split
+
+Staff views in `src/App.vue` are lazy-loaded (`defineAsyncComponent`). Main JS 808 kB → 395 kB; Chart.js (Analytics, 185 kB) and Leaflet (150 kB) load only when used.
+
 ## Still open
 
 - Drivers still receive every `newOrder` on the Ably `orders` channel (full customer details). Fixing it needs a separate driver channel.
-- Build warns about a >500 kB chunk — consider code-splitting Chart.js/Analytics.
 
 ## Checked, no issue
 

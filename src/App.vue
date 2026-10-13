@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, provide } from 'vue';
+import { computed, ref, watch, provide, defineAsyncComponent } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useAuthStore } from './store/useAuthStore';
 import { usePosStore } from './store/usePosStore.js';
@@ -7,15 +7,18 @@ import { useCartStore } from './store/useCartStore.js';
 import { refreshRealtimeAuth } from './lib/realtime.js';
 import StorefrontShell from './components/shell/StorefrontShell.vue';
 import ConsoleShell from './components/shell/ConsoleShell.vue';
-import Dashboard from './components/Dashboard.vue';
-import POSTerminal from './components/POSTerminal.vue';
-import KitchenDisplay from './components/KitchenDisplay.vue';
-import Inventory from './components/Inventory.vue';
-import MenuManagement from './components/MenuManagement.vue';
-import Analytics from './components/Analytics.vue';
-import LoyaltyManagement from './components/LoyaltyManagement.vue';
-import DriverView from './components/DriverView.vue';
-import UserManagement from './components/UserManagement.vue';
+// Staff views load on first use, so guests never download them and Chart.js
+// (Analytics) and Leaflet (DriverView) stay out of the main bundle.
+const lazy = (load) => defineAsyncComponent(load);
+const Dashboard         = lazy(() => import('./components/Dashboard.vue'));
+const POSTerminal       = lazy(() => import('./components/POSTerminal.vue'));
+const KitchenDisplay    = lazy(() => import('./components/KitchenDisplay.vue'));
+const Inventory         = lazy(() => import('./components/Inventory.vue'));
+const MenuManagement    = lazy(() => import('./components/MenuManagement.vue'));
+const Analytics         = lazy(() => import('./components/Analytics.vue'));
+const LoyaltyManagement = lazy(() => import('./components/LoyaltyManagement.vue'));
+const DriverView        = lazy(() => import('./components/DriverView.vue'));
+const UserManagement    = lazy(() => import('./components/UserManagement.vue'));
 const auth0    = useAuth0();
 const auth     = useAuthStore();
 const posStore = usePosStore();
