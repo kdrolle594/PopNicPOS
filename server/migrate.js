@@ -321,6 +321,19 @@ async function run() {
       console.log('✔  Added idx_customer_order_driver_status to customer_order');
     }
 
+    // GET /api/orders filters by status and by created_at window per role.
+    const [createdIdx] = await conn.query(`
+      SELECT 1 FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_order'
+        AND INDEX_NAME = 'idx_customer_order_created_at'
+    `);
+    if (createdIdx.length) {
+      console.log('✔  customer_order created_at index already exists — skipping');
+    } else {
+      await conn.query('ALTER TABLE customer_order ADD INDEX idx_customer_order_created_at (created_at)');
+      console.log('✔  Added idx_customer_order_created_at to customer_order');
+    }
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS driver_location (
         driver_user_id  ${userIdType} NOT NULL,

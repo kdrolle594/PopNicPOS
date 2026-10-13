@@ -3,12 +3,12 @@ import pool from '../db.js';
 import {
   emitNewOrder, emitOrderStatusUpdated, emitOrderDriverAssigned, emitMenuChanged, emitRoutePublishes,
 } from '../realtime.js';
-import { resolveLine, OrderLineError, snapshotStock } from '../lib/orderOptions.js';
+import { resolveLine, OrderLineError, snapshotStock, snapshotRecipe } from '../lib/orderOptions.js';
 import { totalStockNeeds, findShortfall, crossesThreshold } from '../lib/availability.js';
 import { loadOptionData, loadStock, loadThresholds, groupsForItem } from '../lib/optionData.js';
 
 import {
-  deliveryPinError, STAFF_ASSIGN_ROLES, canChangeStatus, canRelease, resolveClaim,
+  deliveryPinError, STAFF_ASSIGN_ROLES, canChangeStatus, canRelease, resolveClaim, orderListScope,
 } from '../lib/orderRules.js';
 // lockDriver lock order: app_user(driver) -> driver_location -> customer_order.
 import { recalculateDriverRoute, lockDriver } from '../lib/driverRoute.js';
@@ -19,6 +19,12 @@ const STAFF_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin', 'driver']
 const VALID_STATUSES = new Set(['pending', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
 const VALID_ORDER_TYPES = new Set(['dine_in', 'pickup', 'delivery']);
 const MAX_ITEM_QUANTITY = 100;
+
+// API shape of a line's customizations; the recipe snapshot is internal.
+function publicOptions(customizations) {
+  const { recipe: _recipe, ...rest } = customizations || {};
+  return rest;
+}
 
 function parseCustomizations(raw) {
   if (raw == null) return {};
@@ -34,12 +40,12 @@ function parseCustomizations(raw) {
 router.get('/', async (req, res) => {
   try {
     const isCustomer = req.user?.role === 'customer';
-    const [orders] = isCustomer
-      ? await pool.query(
-          'SELECT * FROM customer_order WHERE customer_user_id = ? ORDER BY created_at DESC',
-          [req.user.id]
-        )
-      : await pool.query('SELECT * FROM customer_order ORDER BY created_at DESC');
+    const scope = orderListScope(req.user);
+    if (!scope) return res.status(403).json({ error: 'Forbidden' });
+    const [orders] = await pool.query(
+      `SELECT * FROM customer_order WHERE ${scope.where} ORDER BY created_at DESC`,
+      scope.params
+    );
 
     let items = [];
     if (orders.length > 0) {
@@ -99,7 +105,7 @@ router.get('/', async (req, res) => {
           price: Number(i.unit_price),
           paidWithPoints: Boolean(i.paid_with_points),
           notes: i.notes,
-          options: parseCustomizations(i.customizations),
+          options: publicOptions(parseCustomizations(i.customizations)),
         })),
     }));
 
@@ -180,6 +186,10 @@ router.post('/', async (req, res) => {
     const isStaff = STAFF_ROLES.has(req.user?.role);
 
     // Normalize and validate every line item before touching the DB.
+    if (!items.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'Each item must be an object' });
+    }
     for (const item of items) {
       item.quantity = Number(item.quantity ?? 1);
       if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_ITEM_QUANTITY) {
@@ -263,7 +273,12 @@ router.post('/', async (req, res) => {
         // a fully customized label can run long, so truncate defensively.
         item.name = resolved.label.slice(0, 255);
         item.unitPrice = item.paidWithPoints ? 0 : resolved.unitPrice;
-        item.customizations = resolved.snapshot;
+        // Recipe snapshot: cancelling restocks what was taken, even if the
+        // recipe is edited in between.
+        item.customizations = {
+          ...resolved.snapshot,
+          recipe: (recipeMap.get(row.id) || []).map((l) => ({ inventoryItemId: l.inventoryItemId, quantity: l.quantity })),
+        };
         stockLines.push({ stockPerUnit: resolved.stockPerUnit, quantity: item.quantity });
       } else {
         if (!isStaff) {
@@ -394,7 +409,7 @@ router.post('/', async (req, res) => {
         price: i.unitPrice,
         paidWithPoints: Boolean(i.paidWithPoints),
         notes: i.notes || null,
-        options: i.customizations || {},
+        options: publicOptions(i.customizations),
       })),
     };
 
@@ -471,14 +486,19 @@ router.put('/:id/status', async (req, res) => {
       const restock = new Map();
       const add = (id, qty) => restock.set(id, (restock.get(id) || 0) + qty);
       for (const item of orderItems) {
-        if (item.menu_item_id) {
+        const customizations = parseCustomizations(item.customizations);
+        const recipe = snapshotRecipe(customizations);
+        if (recipe) {
+          for (const r of recipe) add(r.inventoryItemId, r.quantity * item.quantity);
+        } else if (item.menu_item_id) {
+          // Orders placed before recipe snapshots: fall back to the current recipe.
           const [recipeLinks] = await conn.query(
             'SELECT inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id = ?',
             [item.menu_item_id]
           );
           for (const link of recipeLinks) add(link.inventory_item_id, Number(link.quantity_used) * item.quantity);
         }
-        for (const s of snapshotStock(parseCustomizations(item.customizations))) {
+        for (const s of snapshotStock(customizations)) {
           add(s.inventoryItemId, s.inventoryQty * item.quantity);
         }
       }

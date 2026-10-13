@@ -76,3 +76,31 @@ export function deliveryPinError(orderType, lat, lng) {
   if (lat == null || lng == null) return 'Delivery orders need your location. Allow location access or choose pickup.';
   return null;
 }
+
+// WHERE clause for GET /api/orders, per role. Keeps the list bounded and
+// limits whose customer details each role can see.
+//   customer         → own orders
+//   driver           → unclaimed ready deliveries + own stops
+//   cashier/kitchen  → open orders + the last day
+//   manager/admin    → open orders + the last year (Analytics' widest range)
+const OPEN = "status IN ('pending', 'preparing', 'ready', 'out_for_delivery')";
+export function orderListScope(user) {
+  switch (user.role) {
+    case 'customer':
+      return { where: 'customer_user_id = ?', params: [user.id] };
+    case 'driver':
+      return {
+        where: `(order_type = 'delivery' AND status = 'ready' AND driver_user_id IS NULL)
+             OR (driver_user_id = ? AND status = 'out_for_delivery')`,
+        params: [user.id],
+      };
+    case 'cashier':
+    case 'kitchen':
+      return { where: `${OPEN} OR created_at >= NOW() - INTERVAL 1 DAY`, params: [] };
+    case 'manager':
+    case 'admin':
+      return { where: `${OPEN} OR created_at >= NOW() - INTERVAL 1 YEAR`, params: [] };
+    default:
+      return null;
+  }
+}

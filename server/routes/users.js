@@ -34,26 +34,47 @@ router.post('/', ...adminOnly, async (req, res) => {
     const { name, email, role, phone } = req.body;
 
     if (!name || !email || !role) {
+      await conn.rollback();
       return res.status(400).json({ error: 'name, email, and role are required' });
     }
 
     if (!VALID_ROLES.includes(role)) {
+      await conn.rollback();
       return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
     }
 
     if (phone != null && (typeof phone !== 'string' || phone.length > 50)) {
+      await conn.rollback();
       return res.status(400).json({ error: 'Invalid phone' });
     }
 
     // Email is the key first-login linking matches on, so a second account with
     // the same address would leave one of them permanently unreachable.
     const [existing] = await conn.query(
-      'SELECT id FROM app_user WHERE email = ? LIMIT 1',
+      'SELECT id, user_type, display_name, phone FROM app_user WHERE email = ? LIMIT 1 FOR UPDATE',
       [email]
     );
     if (existing.length > 0) {
-      await conn.rollback();
-      return res.status(409).json({ error: 'An account with that email already exists' });
+      const ex = existing[0];
+      if (ex.user_type !== 'customer') {
+        await conn.rollback();
+        return res.status(409).json({ error: 'An account with that email already exists' });
+      }
+      // Existing customer account: promote it in place, keeping its Auth0 link.
+      await conn.query(
+        `UPDATE app_user SET user_type = 'employee', phone = COALESCE(phone, ?) WHERE id = ?`,
+        [phone || null, ex.id]
+      );
+      await conn.query(
+        `INSERT INTO employee_profile (user_id, role) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+        [ex.id, role]
+      );
+      await conn.commit();
+      return res.status(201).json({
+        id: ex.id, name: ex.display_name || name, email, phone: ex.phone || phone || null,
+        role, is_active: 1, promoted: true,
+      });
     }
 
     const [userResult] = await conn.query(

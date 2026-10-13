@@ -46,24 +46,26 @@ router.get('/me', async (req, res) => {
 
 // PUT /api/customers/me — update self-editable fields only (partial update;
 // omitted fields are left unchanged). Customer accounts only — staff rows
-// must not be editable through this endpoint.
+// must not be editable through this endpoint. Email is not editable: it comes
+// from the Auth0 login and staff linking relies on it.
 router.put('/me', async (req, res) => {
   try {
     const { name, phone, email } = req.body;
+    if (email != null) {
+      return res.status(400).json({ error: 'Email is managed by your login account and cannot be changed here' });
+    }
     if (name != null && (typeof name !== 'string' || !name.trim() || name.length > 100)) {
       return res.status(400).json({ error: 'Invalid name' });
     }
-    if ((phone != null && (typeof phone !== 'string' || phone.length > 30)) ||
-        (email != null && (typeof email !== 'string' || email.length > 255))) {
-      return res.status(400).json({ error: 'Invalid phone or email' });
+    if (phone != null && (typeof phone !== 'string' || phone.length > 30)) {
+      return res.status(400).json({ error: 'Invalid phone' });
     }
     await pool.query(
       `UPDATE app_user
        SET display_name = COALESCE(?, display_name),
-           phone = COALESCE(?, phone),
-           email = COALESCE(?, email)
+           phone = COALESCE(?, phone)
        WHERE id = ? AND user_type = 'customer'`,
-      [name || null, phone || null, email || null, req.user.id]
+      [name || null, phone || null, req.user.id]
     );
     const [rows] = await pool.query(
       `SELECT u.id, u.display_name, u.phone, u.email,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveLine, snapshotStock, OrderLineError } from '../server/lib/orderOptions.js';
+import { resolveLine, snapshotStock, snapshotRecipe, OrderLineError } from '../server/lib/orderOptions.js';
 
 const choice = (over) => ({
   groupId: 1, priceDelta: 0, enabled: true, isDefault: false,
@@ -95,5 +95,19 @@ describe('snapshotStock', () => {
   it('handles legacy customizations', () => {
     expect(snapshotStock({ pizzaSize: 'large' })).toEqual([]);
     expect(snapshotStock(null)).toEqual([]);
+  });
+});
+
+describe('snapshotRecipe', () => {
+  it('returns null for rows without a recipe snapshot', () => {
+    expect(snapshotRecipe({ choices: [] })).toBeNull();
+    expect(snapshotRecipe(null)).toBeNull();
+  });
+  it('returns the stored recipe, dropping empty links', () => {
+    expect(snapshotRecipe({ recipe: [
+      { inventoryItemId: 1, quantity: 2 },
+      { inventoryItemId: 2, quantity: 0 },
+      null,
+    ] })).toEqual([{ inventoryItemId: 1, quantity: 2 }]);
   });
 });

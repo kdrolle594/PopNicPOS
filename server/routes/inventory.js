@@ -65,21 +65,26 @@ router.put('/:id', async (req, res) => {
     const { name, quantity, unit, reorderLevel, costPerUnit } = req.body;
     const invalid = validateInventoryPayload(req.body);
     if (invalid) return res.status(400).json({ error: invalid });
-    await pool.query(
+    // Omitted fields keep their current value.
+    const [result] = await pool.query(
       `UPDATE inventory_item
-       SET name=?, quantity=?, unit=?, reorder_level=?, cost_per_unit=?, last_updated=NOW()
+       SET name=?, quantity=COALESCE(?, quantity), unit=COALESCE(?, unit),
+           reorder_level=COALESCE(?, reorder_level), cost_per_unit=COALESCE(?, cost_per_unit),
+           last_updated=NOW()
        WHERE id=?`,
-      [name, quantity, unit, reorderLevel, costPerUnit, req.params.id]
+      [name, quantity ?? null, unit ?? null, reorderLevel ?? null, costPerUnit ?? null, req.params.id]
     );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Inventory item not found' });
     await emitMenuChanged();
+    const [[item]] = await pool.query('SELECT * FROM inventory_item WHERE id = ?', [req.params.id]);
     res.json({
-      id: Number(req.params.id),
-      name,
-      quantity: Number(quantity),
-      unit,
-      reorderLevel: Number(reorderLevel),
-      costPerUnit: Number(costPerUnit),
-      lastUpdated: new Date().toISOString(),
+      id: item.id,
+      name: item.name,
+      quantity: Number(item.quantity),
+      unit: item.unit,
+      reorderLevel: Number(item.reorder_level),
+      costPerUnit: Number(item.cost_per_unit),
+      lastUpdated: item.last_updated,
     });
   } catch (err) {
     console.error(err);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  canChangeStatus, canRelease, resolveClaim, parseLocation, deliveryPinError,
+  canChangeStatus, canRelease, resolveClaim, parseLocation, deliveryPinError, orderListScope,
 } from '../server/lib/orderRules.js';
 
 const customer = { role: 'customer', id: 10 };
@@ -104,5 +104,24 @@ describe('deliveryPinError', () => {
     expect(deliveryPinError('delivery', null, null)).toMatch(/location/i);
     expect(deliveryPinError('pickup', null, null)).toBeNull();
     expect(deliveryPinError(undefined, null, null)).toBeNull();
+  });
+});
+
+describe('orderListScope', () => {
+  it('limits customers to their own orders', () => {
+    expect(orderListScope(customer)).toEqual({ where: 'customer_user_id = ?', params: [10] });
+  });
+  it('limits drivers to unclaimed ready deliveries and their own stops', () => {
+    const s = orderListScope(driver);
+    expect(s.where).toContain("status = 'ready' AND driver_user_id IS NULL");
+    expect(s.where).toContain("driver_user_id = ? AND status = 'out_for_delivery'");
+    expect(s.params).toEqual([20]);
+  });
+  it('gives kitchen a one-day window and managers a one-year window', () => {
+    expect(orderListScope(kitchen).where).toContain('INTERVAL 1 DAY');
+    expect(orderListScope(manager).where).toContain('INTERVAL 1 YEAR');
+  });
+  it('returns null for unknown roles', () => {
+    expect(orderListScope({ role: 'guest', id: 1 })).toBeNull();
   });
 });

@@ -194,14 +194,29 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: invalid });
     }
 
-    await conn.query(
-      `UPDATE menu_item SET name=?, category=?, price=?, cost=?, available=?, is_combo=?, points_value=?, image_url=?, description=?
+    // name and price are required; other omitted fields keep their current
+    // value. Sending imageUrl/description as '' or null clears them.
+    const [result] = await conn.query(
+      `UPDATE menu_item SET name=?, category=COALESCE(?, category), price=?, cost=COALESCE(?, cost),
+              available=COALESCE(?, available), is_combo=COALESCE(?, is_combo),
+              points_value=COALESCE(?, points_value),
+              image_url=IF(?, ?, image_url), description=IF(?, ?, description)
        WHERE id=?`,
-      [name, category, price, cost, available, isCombo, pointsValue, imageUrl || null, description || null, req.params.id]
+      [
+        name, category ?? null, price, cost ?? null, available ?? null, isCombo ?? null, pointsValue ?? null,
+        imageUrl !== undefined, imageUrl || null, description !== undefined, description || null,
+        req.params.id,
+      ]
     );
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Menu item not found' });
+    }
 
-    // Replace inventory links
-    await conn.query('DELETE FROM menu_item_inventory WHERE menu_item_id = ?', [req.params.id]);
+    // Absent → keep the current recipe links.
+    if (Array.isArray(inventoryItems)) {
+      await conn.query('DELETE FROM menu_item_inventory WHERE menu_item_id = ?', [req.params.id]);
+    }
     if (Array.isArray(inventoryItems) && inventoryItems.length) {
       const values = inventoryItems.map((inv) => [Number(req.params.id), inv.id, inv.quantity]);
       await conn.query(

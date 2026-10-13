@@ -13,17 +13,22 @@ Scope: `server/`, `shared/`, auth/realtime wiring, dependencies. Tests: 181/181 
 | 5 | Low | `server/routes/orders.js` PUT `/:id/status` | Non-numeric id → 500. | 400 validation like the other routes. |
 | 6 | High (deps) | `package.json` | `vercel` CLI in runtime deps pulled ~43 vulnerable packages; plus 10 runtime advisories (proxy-addr critical, mysql2, vue, qs, …). | `vercel` → devDependencies; `npm audit fix` (non-breaking). `npm audit --omit=dev`: 0. |
 
-## Not fixed — recommended follow-ups
+## Follow-ups (fixed in second commit)
 
-- **Customer → staff promotion is effectively dead code.** With `UNIQUE(email)`, `POST /api/users` returns 409 for an existing customer's email, so an admin can't make an existing customer staff. Add an explicit "promote user" admin action.
-- **`PUT /api/customers/me` sets email without verification.** Harmless after fix 3, but the stored email no longer proves anything. Consider making email read-only (sourced from Auth0).
-- **`GET /api/orders` is unbounded.** Returns every order ever plus all line items; will slow down as history grows. Add a date window / pagination; kitchen and drivers only need active orders.
-- **Drivers and kitchen get all orders' customer PII** (names, phones, addresses) via `GET /api/orders`. Scope drivers to ready/own deliveries.
-- **Cancel restock uses the current recipe**, not the one at order time; recipe edits between order and cancel skew stock. Snapshot recipe quantities into `customizations` like choices.
-- **PUT `/api/inventory-items/:id` and `/api/menu-items/:id` are full replaces**: omitted fields become NULL (e.g. `available`, `quantity`). Validate required fields or COALESCE.
-- **`POST /api/users`** returns early on validation without `rollback()` (no writes happen, but the pattern is inconsistent).
-- **POST `/api/orders` assumes each item is an object**; `items: [null]` → 500 instead of 400.
-- Bundle size warning on build (>500 kB chunk) — consider splitting Chart.js/Analytics.
+| Problem | Fix |
+|---|---|
+| Existing customers couldn't be made staff (409 on `POST /api/users`). | `POST /api/users` promotes an existing customer account in place (keeps its Auth0 link, returns `promoted: true`); staff emails still 409. |
+| `PUT /api/customers/me` changed email without verification. | Email is read-only there (400 if sent); it comes from Auth0. |
+| `GET /api/orders` unbounded; drivers/kitchen saw every customer's details. | Scoped per role (`orderListScope` in `server/lib/orderRules.js`): customers own orders; drivers unclaimed ready deliveries + own stops; cashier/kitchen open orders + last day; manager/admin open orders + last year. New index `idx_customer_order_created_at` (run `node server/migrate.js`). |
+| Cancel restocked using the current recipe. | Recipe is snapshotted into `order_item.customizations.recipe` at order time and used on cancel; older rows fall back to the current recipe. The snapshot is stripped from API responses. |
+| Menu/inventory PUT wiped omitted fields (and menu PUT without `inventoryItems` deleted recipe links). | Omitted fields keep current values; recipe links only replaced when `inventoryItems` is sent; 404 for unknown ids. |
+| `POST /api/users` early returns skipped `rollback()`. | Added. |
+| `items: [null]` on `POST /api/orders` → 500. | 400 "Each item must be an object". |
+
+## Still open
+
+- Drivers still receive every `newOrder` on the Ably `orders` channel (full customer details). Fixing it needs a separate driver channel.
+- Build warns about a >500 kB chunk — consider code-splitting Chart.js/Analytics.
 
 ## Checked, no issue
 

@@ -56,3 +56,12 @@ export function snapshotStock(customizations) {
     .filter((c) => c.inventoryItemId != null && Number(c.inventoryQty) > 0)
     .map((c) => ({ inventoryItemId: c.inventoryItemId, inventoryQty: Number(c.inventoryQty) }));
 }
+
+// Recipe captured when the order was placed, or null for older rows that
+// predate the snapshot (the caller then uses the current recipe).
+export function snapshotRecipe(customizations) {
+  if (!Array.isArray(customizations?.recipe)) return null;
+  return customizations.recipe
+    .filter((r) => r && r.inventoryItemId != null && Number(r.quantity) > 0)
+    .map((r) => ({ inventoryItemId: r.inventoryItemId, quantity: Number(r.quantity) }));
+}
