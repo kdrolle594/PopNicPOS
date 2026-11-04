@@ -234,15 +234,15 @@ const STAT_CARDS = computed(() => [
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  border: 1px solid rgba(58, 143, 186, 0.1);
-  box-shadow: 0 2px 8px rgba(58, 143, 186, 0.05);
+  border: 1px solid rgba(37, 99, 235, 0.1);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.05);
   animation: rise 0.35s ease calc(var(--delay, 0ms)) both;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(58, 143, 186, 0.11);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.11);
 }
 
 .stat-card__icon {
@@ -255,7 +255,7 @@ const STAT_CARDS = computed(() => [
   flex-shrink: 0;
 }
 
-.stat-card--blue  .stat-card__icon { background: #EEF6FB; color: #3A8FBA; }
+.stat-card--blue  .stat-card__icon { background: #EEF6FB; color: #2563EB; }
 .stat-card--brown .stat-card__icon { background: #F5EDE4; color: #8B6B4A; }
 .stat-card--teal  .stat-card__icon { background: #E0F5F0; color: #0E9E7A; }
 .stat-card--red   .stat-card__icon { background: #FFF1F1; color: #e74c3c; }
@@ -299,8 +299,8 @@ const STAT_CARDS = computed(() => [
   background: white;
   border-radius: 14px;
   padding: 20px 22px;
-  border: 1px solid rgba(58, 143, 186, 0.1);
-  box-shadow: 0 2px 8px rgba(58, 143, 186, 0.05);
+  border: 1px solid rgba(37, 99, 235, 0.1);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.05);
   animation: rise 0.35s ease var(--panel-delay, 0ms) both;
 }
 
@@ -337,7 +337,7 @@ const STAT_CARDS = computed(() => [
 
 .cat-row__fill {
   height: 100%;
-  background: linear-gradient(90deg, #3A8FBA 0%, #5AABDB 100%);
+  background: linear-gradient(90deg, #2563EB 0%, #5AABDB 100%);
   border-radius: 4px;
   transition: width 0.9s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -350,7 +350,7 @@ const STAT_CARDS = computed(() => [
   justify-content: space-between;
   align-items: center;
   padding: 11px 0;
-  border-bottom: 1px solid rgba(58, 143, 186, 0.08);
+  border-bottom: 1px solid rgba(37, 99, 235, 0.08);
 }
 
 .order-row:last-child { border-bottom: none; }

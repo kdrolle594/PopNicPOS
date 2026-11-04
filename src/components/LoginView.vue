@@ -57,7 +57,7 @@ const auth = useAuthStore();
 .login-bg-orb--blue {
   width: 480px;
   height: 480px;
-  background: rgba(58, 143, 186, 0.22);
+  background: rgba(37, 99, 235, 0.22);
   top: -80px;
   left: -100px;
 }
@@ -80,7 +80,7 @@ const auth = useAuthStore();
   width: 100%;
   max-width: 380px;
   box-shadow:
-    0 24px 60px rgba(58, 143, 186, 0.14),
+    0 24px 60px rgba(37, 99, 235, 0.14),
     0 4px 16px rgba(0, 0, 0, 0.07);
   display: flex;
   flex-direction: column;
@@ -100,12 +100,12 @@ const auth = useAuthStore();
 .login-logo {
   width: 66px;
   height: 66px;
-  background: linear-gradient(135deg, #3A8FBA 0%, #8B6B4A 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #8B6B4A 100%);
   border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 24px rgba(58, 143, 186, 0.32);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.32);
 }
 
 .login-logo span {
@@ -133,7 +133,7 @@ const auth = useAuthStore();
 }
 
 .login-title em {
-  color: #3A8FBA;
+  color: #2563EB;
   font-style: normal;
 }
 
@@ -159,7 +159,7 @@ const auth = useAuthStore();
 .login-btn {
   width: 100%;
   padding: 14px 24px;
-  background: linear-gradient(135deg, #3A8FBA 0%, #2E6F96 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
   color: white;
   border: none;
   border-radius: 12px;
@@ -171,18 +171,18 @@ const auth = useAuthStore();
   justify-content: center;
   gap: 10px;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 4px 16px rgba(58, 143, 186, 0.38);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.38);
   font-family: 'DM Sans', system-ui, sans-serif;
 }
 
 .login-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(58, 143, 186, 0.44);
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.44);
 }
 
 .login-btn:active {
   transform: translateY(0);
-  box-shadow: 0 4px 16px rgba(58, 143, 186, 0.38);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.38);
 }
 
 .login-note {
