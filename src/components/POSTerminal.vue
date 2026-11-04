@@ -1,14 +1,25 @@
 <script setup>
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { usePosStore } from '../store/usePosStore';
-import { subscribeMenu } from '../lib/realtime.js';
-import {
-  needsCustomization, defaultSelection, validateSelection, linePrice, lineLabel,
-  pruneSelection, toggleChoice, groupHint, formatPriceDelta, lineSignature,
-} from '../../shared/menuOptions.js';
+import { useAuthStore } from '../store/useAuthStore.js';
+import { subscribeMenu, subscribeOrders } from '../lib/realtime.js';
+import { useToast } from '../lib/useToast.js';
+import { needsCustomization, linePrice, lineLabel, lineSignature } from '../../shared/menuOptions.js';
+import { pointsForTotal } from '../../shared/loyalty.js';
+import { isCategoryOpen, BREAKFAST } from '../../shared/menuHours.js';
+import UiButton from './ui/UiButton.vue';
+import UiBadge from './ui/UiBadge.vue';
+import UiChip from './ui/UiChip.vue';
+import UiEmptyState from './ui/UiEmptyState.vue';
+import ItemCustomizeSheet from './storefront/ItemCustomizeSheet.vue';
 
-const { state, addOrder, updateLoyaltyCustomer, getTier, refreshMenu } = usePosStore();
+const { state, addOrder, payOrder, applyPayment, updateLoyaltyCustomer, getTier, refreshMenu } = usePosStore();
+const auth = useAuthStore();
+const toast = useToast();
 
+const tab = ref('new'); // 'new' | 'unpaid' | 'log'
+
+// ── New order ────────────────────────────────────────────────────────────────
 const currentOrder = ref([]);
 const tableNumber = ref(1);
 const customerName = ref('');
@@ -17,94 +28,25 @@ const selectedCategory = ref('All');
 const paymentMethod = ref('cash');
 const selectedCustomerId = ref('');
 const customerSearch = ref('');
-const customizationOpen = ref(false);
 const placingOrder = ref(false);
-const pendingUsePoints = ref(false);
 
-const pendingMenuItemId = ref(null);
-// Read through the store so a live refresh updates the open modal.
-const pendingMenuItem = computed(
-  () => state.menuItems.find((i) => i.id === pendingMenuItemId.value) || null
-);
-const selectedChoiceIds = ref([]);
-const customizeNotice = ref('');
+const sheetItemId = ref(null);
+const sheetUsePoints = ref(false);
+// Read through the store so a live refresh updates the open sheet.
+const sheetItem = computed(() => state.menuItems.find((i) => i.id === sheetItemId.value) || null);
 
-const customizeValidation = computed(() =>
-  pendingMenuItem.value ? validateSelection(pendingMenuItem.value, selectedChoiceIds.value) : { ok: false, errors: [] }
-);
-
-watch(pendingMenuItem, (next, prev) => {
-  if (!next || !prev || next.id !== prev.id) return;
-  const { choiceIds, dropped } = pruneSelection(next, selectedChoiceIds.value, prev);
-  if (dropped.length) {
-    selectedChoiceIds.value = choiceIds;
-    customizeNotice.value = `${dropped.join(', ')} just sold out.`;
-  }
-});
-
-function groupErrorFor(group) {
-  return customizeValidation.value.errors.find((e) => e.groupId === group.id)?.message || '';
-}
-
-function pickChoice(choiceId) {
-  selectedChoiceIds.value = toggleChoice(pendingMenuItem.value, selectedChoiceIds.value, choiceId);
-}
-
-// Pickers only ever offer choices that are switched on right now (spec §1) —
-// managers/admins can otherwise see everything the menu API returns.
-function offeredChoices(group) {
-  return group.choices.filter((c) => c.available !== false);
-}
-
-function groupSelectedCount(group) {
-  const ids = new Set(group.choices.map((c) => c.id));
-  return selectedChoiceIds.value.filter((id) => ids.has(id)).length;
-}
-
-// Once a multi-select group hits its cap, the remaining unselected choices
-// render disabled so the limit is visible (spec §7.2).
-function isChoiceDisabled(group, choice) {
-  return group.maxSelect !== 1
-    && !selectedChoiceIds.value.includes(choice.id)
-    && groupSelectedCount(group) >= group.maxSelect;
-}
-
-// Small roving arrow-key handler for a single-choice (radio) group: moves
-// focus to the next/previous available choice and selects it.
-function onRadioKeydown(event, group) {
-  const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight';
-  const backward = event.key === 'ArrowUp' || event.key === 'ArrowLeft';
-  if (!forward && !backward) return;
-  event.preventDefault();
-  const choices = offeredChoices(group);
-  const buttons = Array.from(event.currentTarget.querySelectorAll('[role="radio"]'));
-  if (!buttons.length) return;
-  const currentIndex = buttons.indexOf(document.activeElement);
-  const step = forward ? 1 : -1;
-  const nextIndex = ((currentIndex === -1 ? 0 : currentIndex) + step + buttons.length) % buttons.length;
-  buttons[nextIndex].focus();
-  pickChoice(choices[nextIndex].id);
-}
+const PAYMENT_METHODS = [
+  { id: 'cash', label: 'Cash' },
+  { id: 'card', label: 'Card' },
+  { id: 'digital', label: 'Digital' },
+];
 
 function posLineKey(line) {
   return `${line.paidWithPoints ? 'pts' : 'cash'}|${lineSignature(line.menuItemId, line.choiceIds || [])}`;
 }
 
-let unsubscribeMenu = null;
-let disposed = false;
-onMounted(async () => {
-  try {
-    const unsubscribe = await subscribeMenu(() => refreshMenu());
-    if (disposed) unsubscribe();
-    else unsubscribeMenu = unsubscribe;
-  } catch (err) {
-    console.warn('Live menu updates unavailable:', err);
-  }
-});
-onUnmounted(() => {
-  disposed = true;
-  if (unsubscribeMenu) unsubscribeMenu();
-});
+const now = ref(new Date());
+let clock = null;
 
 const categories = computed(() => ['All', ...new Set(state.menuItems.map((item) => item.category))]);
 
@@ -112,6 +54,11 @@ const filteredMenuItems = computed(() => {
   if (selectedCategory.value === 'All') return state.menuItems;
   return state.menuItems.filter((item) => item.category === selectedCategory.value);
 });
+
+const RESTAURANT_TZ = import.meta.env.VITE_RESTAURANT_TZ || undefined;
+function closedForHours(item) {
+  return !isCategoryOpen(item.category, now.value, RESTAURANT_TZ);
+}
 
 const selectedCustomer = computed(() => state.loyaltyCustomers.find((c) => c.id === selectedCustomerId.value));
 
@@ -125,9 +72,7 @@ const filteredCustomers = computed(() => {
 });
 
 const total = computed(() => currentOrder.value.reduce((sum, item) => sum + item.price * item.quantity, 0));
-
-const pointsToEarn = computed(() => Math.floor(total.value / 10));
-
+const pointsToEarn = computed(() => pointsForTotal(total.value));
 const totalPointsToRedeem = computed(() =>
   currentOrder.value.reduce((sum, orderItem) => {
     if (!orderItem.paidWithPoints) return sum;
@@ -137,15 +82,15 @@ const totalPointsToRedeem = computed(() =>
 );
 
 function addConfiguredToOrder(menuItem, usePoints = false, choiceIds = []) {
-  if (!menuItem.available || menuItem.soldOut) return;
+  if (!menuItem.available || menuItem.soldOut || closedForHours(menuItem)) return;
 
   if (usePoints) {
     if (!selectedCustomer.value) {
-      alert('Select a loyalty customer first.');
+      toast.error('Select a loyalty customer first.');
       return;
     }
     if (!menuItem.pointsValue || selectedCustomer.value.points < menuItem.pointsValue) {
-      alert('Not enough points for this item.');
+      toast.error(`${selectedCustomer.value.name} doesn't have enough points for ${menuItem.name}.`);
       return;
     }
   }
@@ -172,18 +117,13 @@ function addToOrder(menuItem, usePoints = false) {
     addConfiguredToOrder(menuItem, usePoints);
     return;
   }
-  pendingMenuItemId.value = menuItem.id;
-  pendingUsePoints.value = usePoints;
-  selectedChoiceIds.value = defaultSelection(menuItem);
-  customizeNotice.value = '';
-  customizationOpen.value = true;
+  sheetItemId.value = menuItem.id;
+  sheetUsePoints.value = usePoints;
 }
 
-function confirmCustomization() {
-  if (!pendingMenuItem.value || !customizeValidation.value.ok) return;
-  addConfiguredToOrder(pendingMenuItem.value, pendingUsePoints.value, selectedChoiceIds.value);
-  customizationOpen.value = false;
-  pendingMenuItemId.value = null;
+function onSheetConfirm({ choiceIds }) {
+  if (sheetItem.value) addConfiguredToOrder(sheetItem.value, sheetUsePoints.value, choiceIds);
+  sheetItemId.value = null;
 }
 
 function updateQuantity(orderItem, delta) {
@@ -204,23 +144,18 @@ function selectCustomer(customer) {
   customerSearch.value = '';
 }
 
-async function placeOrder() {
+function clearCustomer() {
+  selectedCustomerId.value = '';
+  customerName.value = '';
+}
+
+// payNow: true takes payment while placing; false sends it to the kitchen unpaid
+// so any cashier can take payment later from the Unpaid tab.
+async function placeOrder(payNow) {
   if (placingOrder.value) return;
   if (!currentOrder.value.length) {
-    alert('Please add items to the order.');
+    toast.error('Add items to the order first.');
     return;
-  }
-
-  if (selectedCustomer.value && (pointsToEarn.value > 0 || totalPointsToRedeem.value > 0)) {
-    const updatedCustomer = {
-      ...selectedCustomer.value,
-      points: selectedCustomer.value.points + pointsToEarn.value - totalPointsToRedeem.value,
-      totalSpent: selectedCustomer.value.totalSpent + total.value,
-      ordersCount: selectedCustomer.value.ordersCount + 1,
-      lastVisit: new Date().toISOString(),
-    };
-    updatedCustomer.tier = getTier(updatedCustomer.points);
-    updateLoyaltyCustomer(updatedCustomer);
   }
 
   placingOrder.value = true;
@@ -235,13 +170,10 @@ async function placeOrder() {
         paidWithPoints: line.paidWithPoints,
         choiceIds: line.choiceIds || [],
       })),
-      total: total.value,
-      status: 'pending',
       tableNumber: Number(tableNumber.value),
       customerName: customerName.value || selectedCustomer.value?.name,
-      customerId: selectedCustomerId.value || undefined,
-      paymentMethod: paymentMethod.value,
-      createdAt: new Date().toISOString(),
+      paymentMethod: payNow ? paymentMethod.value : undefined,
+      paid: payNow,
       notes: notes.value || undefined,
       pointsEarned: pointsToEarn.value,
       pointsRedeemed: totalPointsToRedeem.value,
@@ -251,215 +183,476 @@ async function placeOrder() {
   }
 
   if (!created) {
-    alert(state.orderError || 'Failed to place order. Please try again.');
+    toast.error(state.orderError || 'The order was not placed. Try again.');
     await refreshMenu();
     return;
   }
 
+  // Loyalty bookkeeping only after the order exists.
+  if (selectedCustomer.value && (pointsToEarn.value > 0 || totalPointsToRedeem.value > 0)) {
+    const updatedCustomer = {
+      ...selectedCustomer.value,
+      points: selectedCustomer.value.points + pointsToEarn.value - totalPointsToRedeem.value,
+      totalSpent: selectedCustomer.value.totalSpent + total.value,
+      ordersCount: selectedCustomer.value.ordersCount + 1,
+      lastVisit: new Date().toISOString(),
+    };
+    updatedCustomer.tier = getTier(updatedCustomer.points);
+    updateLoyaltyCustomer(updatedCustomer);
+  }
+
   currentOrder.value = [];
   notes.value = '';
-  customerName.value = '';
-  selectedCustomerId.value = '';
+  clearCustomer();
 
-  alert(`Order #${created.orderNumber} placed successfully.`);
+  toast.success(payNow
+    ? `Order #${created.orderNumber} paid and sent to the kitchen.`
+    : `Order #${created.orderNumber} sent to the kitchen. It's waiting for payment.`);
 }
+
+// ── Unpaid orders ────────────────────────────────────────────────────────────
+const unpaidOrders = computed(() =>
+  state.orders
+    .filter((o) => !o.paidAt && o.status !== 'cancelled')
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+);
+const unpaidMethod = ref({}); // orderId -> method
+const payingId = ref(null);
+
+async function takePayment(order) {
+  if (payingId.value) return;
+  const method = unpaidMethod.value[order.id] || 'cash';
+  payingId.value = order.id;
+  const payment = await payOrder(order.id, method);
+  payingId.value = null;
+  if (payment) toast.success(`Order #${order.orderNumber} paid by ${method}.`);
+  else toast.error(state.orderError || `Payment for order #${order.orderNumber} didn't go through.`);
+}
+
+// ── Payment log (today) ──────────────────────────────────────────────────────
+function isToday(value) {
+  if (!value) return false;
+  const d = new Date(value);
+  const t = now.value;
+  return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+}
+const todaysOrders = computed(() =>
+  state.orders
+    .filter((o) => isToday(o.createdAt))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+);
+
+function formatTime(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+function orderWhere(o) {
+  if (o.orderType === 'delivery') return 'Delivery';
+  if (o.orderType === 'pickup') return 'Pickup';
+  return o.tableNumber ? `Table ${o.tableNumber}` : 'Dine in';
+}
+function methodLabel(id) {
+  return PAYMENT_METHODS.find((m) => m.id === id)?.label || '—';
+}
+function isMine(userId) {
+  return userId != null && userId === auth.state.appUser?.id;
+}
+
+// ── Live updates ─────────────────────────────────────────────────────────────
+let unsubscribeMenu = null;
+let unsubscribeOrders = null;
+let disposed = false;
+onMounted(async () => {
+  clock = setInterval(() => { now.value = new Date(); }, 60_000);
+  try {
+    const unsubscribe = await subscribeMenu(() => refreshMenu());
+    if (disposed) unsubscribe();
+    else unsubscribeMenu = unsubscribe;
+  } catch (err) {
+    console.warn('Live menu updates unavailable:', err);
+  }
+  try {
+    const unsubscribe = await subscribeOrders({
+      newOrder: (order) => {
+        if (!state.orders.some((o) => o.id === order.id)) state.orders = [...state.orders, order];
+      },
+      orderPaid: (payment) => applyPayment(payment),
+      orderStatusUpdated: ({ orderId, status }) => {
+        state.orders = state.orders.map((o) => (o.id === orderId ? { ...o, status } : o));
+      },
+    });
+    if (disposed) unsubscribe();
+    else unsubscribeOrders = unsubscribe;
+  } catch (err) {
+    console.warn('Live order updates unavailable:', err);
+  }
+});
+onUnmounted(() => {
+  disposed = true;
+  clearInterval(clock);
+  if (unsubscribeMenu) unsubscribeMenu();
+  if (unsubscribeOrders) unsubscribeOrders();
+});
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <div>
-      <h1 class="text-3xl font-bold">POS Terminal</h1>
-      <p class="text-gray-500">Take orders and process payments</p>
+  <div class="c-page">
+    <div class="c-head">
+      <div>
+        <h1 class="c-title">POS Terminal</h1>
+        <p class="c-sub">Take orders and payments. Any cashier can take payment for an order.</p>
+      </div>
+      <div class="c-tabs" role="tablist" aria-label="POS sections">
+        <button
+          class="c-tab" :class="{ 'c-tab--active': tab === 'new' }"
+          role="tab" :aria-selected="tab === 'new'" @click="tab = 'new'"
+        >New order</button>
+        <button
+          class="c-tab" :class="{ 'c-tab--active': tab === 'unpaid' }"
+          role="tab" :aria-selected="tab === 'unpaid'" @click="tab = 'unpaid'"
+        >
+          Unpaid
+          <UiBadge v-if="unpaidOrders.length" :tone="tab === 'unpaid' ? 'neutral' : 'primary'">{{ unpaidOrders.length }}</UiBadge>
+        </button>
+        <button
+          class="c-tab" :class="{ 'c-tab--active': tab === 'log' }"
+          role="tab" :aria-selected="tab === 'log'" @click="tab = 'log'"
+        >Today's log</button>
+      </div>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div class="xl:col-span-2 bg-white border rounded-xl p-4 space-y-4">
-        <div class="flex flex-wrap gap-2">
-          <button
+    <!-- New order -->
+    <div v-if="tab === 'new'" class="pos-grid">
+      <section class="c-card pos-menu" aria-label="Menu">
+        <div class="pos-chips">
+          <UiChip
             v-for="category in categories"
             :key="category"
-            class="px-3 py-1 rounded-full border text-sm"
-            :class="selectedCategory === category ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'"
+            :selected="selectedCategory === category"
             @click="selectedCategory = category"
-          >
-            {{ category }}
-          </button>
+          >{{ category }}</UiChip>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div v-for="item in filteredMenuItems" :key="item.id" class="border rounded-lg p-3 space-y-2">
-            <p class="font-medium text-sm">{{ item.name }}</p>
-            <p class="text-xs text-gray-500">{{ item.category }}</p>
-            <p class="text-lg font-bold text-blue-600">${{ item.price.toFixed(2) }}</p>
-            <div class="flex gap-1">
-              <button
-                class="flex-1 px-2 py-1 rounded border text-sm"
-                :class="item.available && !item.soldOut ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'"
-                :disabled="!item.available || item.soldOut"
+        <p v-if="selectedCategory === BREAKFAST.category && closedForHours({ category: BREAKFAST.category })" class="c-notice c-notice--warning">
+          Breakfast is served {{ BREAKFAST.label }}.
+        </p>
+
+        <div class="pos-items">
+          <div
+            v-for="item in filteredMenuItems"
+            :key="item.id"
+            class="pos-item"
+            :class="{ 'pos-item--off': !item.available || item.soldOut || closedForHours(item) }"
+          >
+            <p class="pos-item__name">{{ item.name }}</p>
+            <p class="c-caption c-muted">{{ item.category }}</p>
+            <p class="pos-item__price c-num">${{ item.price.toFixed(2) }}</p>
+            <div class="pos-item__actions">
+              <UiButton
+                variant="secondary"
+                size="sm"
+                class="pos-item__add"
+                :disabled="!item.available || item.soldOut || closedForHours(item)"
                 @click="addToOrder(item, false)"
-              >
-                {{ item.soldOut ? 'Sold out' : 'Add' }}
-              </button>
-              <button
+              >{{ item.soldOut ? 'Sold out' : closedForHours(item) ? 'Not now' : 'Add' }}</UiButton>
+              <UiButton
                 v-if="item.pointsValue"
-                class="px-2 py-1 rounded border text-sm bg-amber-50 border-amber-300"
-                :disabled="item.soldOut"
+                variant="ghost"
+                size="sm"
+                :disabled="item.soldOut || closedForHours(item)"
+                :aria-label="`Add ${item.name} for ${item.pointsValue} points`"
                 @click="addToOrder(item, true)"
-              >
-                {{ item.pointsValue }} pts
-              </button>
+              >{{ item.pointsValue }} pts</UiButton>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="bg-white border rounded-xl p-4 space-y-4">
-        <h2 class="font-semibold">Current Order</h2>
+      <section class="c-card pos-ticket" aria-label="Current order">
+        <h2 class="c-section-title">Current order</h2>
 
-        <div class="space-y-2">
-          <label class="text-sm">Loyalty Customer</label>
-          <input v-model="customerSearch" class="w-full border rounded px-3 py-2" placeholder="Search by name or phone" />
-          <div v-if="customerSearch" class="max-h-36 overflow-y-auto border rounded p-2 space-y-1">
-            <button
-              v-for="customer in filteredCustomers"
-              :key="customer.id"
-              class="w-full text-left px-2 py-1 rounded hover:bg-gray-50 text-sm"
-              @click="selectCustomer(customer)"
-            >
-              {{ customer.name }} · {{ customer.points }} pts
-            </button>
+        <div>
+          <label class="c-label" for="pos-customer">Loyalty customer</label>
+          <div v-if="selectedCustomer" class="pos-customer">
+            <span>{{ selectedCustomer.name }} <span class="c-muted c-num">· {{ selectedCustomer.points }} pts</span></span>
+            <button class="c-link" type="button" @click="clearCustomer">Change</button>
           </div>
-          <p v-if="selectedCustomer" class="text-xs bg-amber-50 border border-amber-200 rounded px-2 py-1">
-            Selected: {{ selectedCustomer.name }} ({{ selectedCustomer.points }} pts)
-          </p>
+          <template v-else>
+            <input id="pos-customer" v-model="customerSearch" class="c-input" placeholder="Search by name or phone" />
+            <div v-if="customerSearch" class="pos-customer-list">
+              <button
+                v-for="customer in filteredCustomers"
+                :key="customer.id"
+                type="button"
+                class="pos-customer-option"
+                @click="selectCustomer(customer)"
+              >
+                {{ customer.name }} <span class="c-muted c-num">{{ customer.points }} pts</span>
+              </button>
+              <p v-if="!filteredCustomers.length" class="c-small c-muted">No customer matches “{{ customerSearch }}”.</p>
+            </div>
+          </template>
         </div>
 
-        <div class="grid grid-cols-2 gap-2">
+        <div class="pos-row2">
           <div>
-            <label class="text-sm">Table</label>
-            <input v-model.number="tableNumber" type="number" min="1" class="w-full border rounded px-3 py-2" />
+            <label class="c-label" for="pos-table">Table</label>
+            <input id="pos-table" v-model.number="tableNumber" type="number" min="1" class="c-input" />
           </div>
           <div>
-            <label class="text-sm">Payment</label>
-            <select v-model="paymentMethod" class="w-full border rounded px-3 py-2 bg-white">
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="digital">Digital</option>
+            <label class="c-label" for="pos-pay">Payment</label>
+            <select id="pos-pay" v-model="paymentMethod" class="c-select">
+              <option v-for="m in PAYMENT_METHODS" :key="m.id" :value="m.id">{{ m.label }}</option>
             </select>
           </div>
         </div>
 
-        <div class="space-y-2 max-h-52 overflow-y-auto">
-          <div
-            v-for="item in currentOrder"
-            :key="posLineKey(item)"
-            class="border rounded p-2"
-          >
-            <div class="flex justify-between gap-2">
-              <p class="text-sm font-medium">{{ item.name }}</p>
-              <button class="text-xs text-red-600" @click="removeItem(item)">Remove</button>
+        <ul class="pos-lines">
+          <li v-for="item in currentOrder" :key="posLineKey(item)" class="pos-line">
+            <div class="pos-line__top">
+              <p class="pos-line__name">{{ item.name }}</p>
+              <button class="c-link c-link--danger" type="button" @click="removeItem(item)">Remove</button>
             </div>
-            <p class="text-xs text-gray-500">{{ item.paidWithPoints ? 'Paid with points' : '$' + item.price.toFixed(2) }}</p>
-            <div class="flex items-center gap-2 mt-1">
-              <button class="px-2 py-1 border rounded" @click="updateQuantity(item, -1)">-</button>
-              <span class="text-sm">{{ item.quantity }}</span>
-              <button class="px-2 py-1 border rounded" @click="updateQuantity(item, 1)">+</button>
+            <div class="pos-line__bottom">
+              <div class="pos-qty">
+                <button type="button" class="pos-qty__btn" :aria-label="`One less ${item.name}`" @click="updateQuantity(item, -1)">−</button>
+                <span class="c-num">{{ item.quantity }}</span>
+                <button type="button" class="pos-qty__btn" :aria-label="`One more ${item.name}`" @click="updateQuantity(item, 1)">+</button>
+              </div>
+              <span class="c-small c-num">{{ item.paidWithPoints ? 'Points' : '$' + (item.price * item.quantity).toFixed(2) }}</span>
             </div>
-          </div>
-          <p v-if="!currentOrder.length" class="text-sm text-gray-500">No items added yet.</p>
-        </div>
+          </li>
+          <li v-if="!currentOrder.length" class="c-small c-muted pos-lines__empty">Tap a menu item to add it.</li>
+        </ul>
 
-        <textarea
-          v-model="notes"
-          rows="3"
-          class="w-full border rounded px-3 py-2"
-          placeholder="Order notes"
-        />
+        <textarea v-model="notes" rows="2" class="c-textarea" placeholder="Order notes" aria-label="Order notes" />
 
-        <div class="rounded-lg bg-gray-50 border p-3 space-y-1 text-sm">
-          <p class="flex justify-between"><span>Subtotal</span><span>${{ total.toFixed(2) }}</span></p>
-          <p class="flex justify-between"><span>Points Earned</span><span>{{ pointsToEarn }}</span></p>
-          <p class="flex justify-between"><span>Points Redeemed</span><span>{{ totalPointsToRedeem }}</span></p>
-        </div>
+        <dl class="pos-totals">
+          <div><dt>Subtotal</dt><dd class="c-num">${{ total.toFixed(2) }}</dd></div>
+          <div><dt>Points earned</dt><dd class="c-num">{{ pointsToEarn }}</dd></div>
+          <div><dt>Points redeemed</dt><dd class="c-num">{{ totalPointsToRedeem }}</dd></div>
+        </dl>
 
-        <div class="flex gap-2">
-          <button class="flex-1 px-3 py-2 rounded border" @click="currentOrder = []">Clear</button>
-          <button
-            class="flex-1 px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
-            :disabled="placingOrder"
-            @click="placeOrder"
-          >{{ placingOrder ? 'Placing…' : 'Place Order' }}</button>
+        <div class="pos-actions">
+          <UiButton variant="ghost" :disabled="!currentOrder.length" @click="currentOrder = []">Clear</UiButton>
+          <UiButton variant="secondary" :disabled="placingOrder || !currentOrder.length" @click="placeOrder(false)">
+            Send unpaid
+          </UiButton>
+          <UiButton variant="primary" :loading="placingOrder" :disabled="!currentOrder.length" @click="placeOrder(true)">
+            Take payment · ${{ total.toFixed(2) }}
+          </UiButton>
         </div>
-      </div>
+      </section>
     </div>
 
-    <div v-if="customizationOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl border w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden">
-        <h2 class="text-lg font-semibold p-4 border-b">Customize {{ pendingMenuItem?.name }}</h2>
-
-        <div class="flex-1 overflow-y-auto p-4 space-y-4">
-          <p v-if="pendingMenuItem?.soldOut" class="text-sm rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2">
-            {{ pendingMenuItem.name }} just sold out.
-          </p>
-          <p v-else-if="customizeNotice" class="text-sm rounded border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2">
-            {{ customizeNotice }}
-          </p>
-
-          <div v-for="group in pendingMenuItem?.optionGroups || []" :key="group.id">
-            <div class="flex items-baseline justify-between mb-2">
-              <p class="text-sm font-medium">{{ group.name }}</p>
-              <span class="text-xs text-gray-500">{{ groupHint(group) }}</span>
-            </div>
-            <div
-              :class="group.maxSelect === 1 ? 'space-y-2' : 'grid grid-cols-2 gap-2'"
-              :role="group.maxSelect === 1 ? 'radiogroup' : 'group'"
-              :aria-label="group.name"
-              @keydown="group.maxSelect === 1 ? onRadioKeydown($event, group) : null"
-            >
-              <button
-                v-for="choice in offeredChoices(group)"
-                :key="choice.id"
-                type="button"
-                :role="group.maxSelect === 1 ? 'radio' : 'checkbox'"
-                :aria-checked="selectedChoiceIds.includes(choice.id)"
-                :disabled="group.maxSelect !== 1 && isChoiceDisabled(group, choice)"
-                :class="[
-                  'flex items-center justify-between gap-2 border rounded px-3 py-2 text-sm text-left w-full cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
-                  selectedChoiceIds.includes(choice.id) ? 'bg-blue-50 border-blue-300' : '',
-                ]"
-                @click="pickChoice(choice.id)"
-              >
-                <span>{{ choice.name }}</span>
-                <span class="flex items-center gap-2">
-                  <span v-if="choice.priceDelta" class="text-xs text-gray-500">{{ formatPriceDelta(choice.priceDelta) }}</span>
-                  <span
-                    v-if="group.maxSelect === 1"
-                    aria-hidden="true"
-                    class="inline-block w-4 h-4 rounded-full border-2"
-                    :class="selectedChoiceIds.includes(choice.id) ? 'border-blue-600 bg-blue-600 ring-2 ring-inset ring-white' : 'border-gray-400'"
-                  ></span>
-                  <span
-                    v-else
-                    aria-hidden="true"
-                    class="inline-flex items-center justify-center w-4 h-4 rounded border-2 text-white text-[10px] leading-none"
-                    :class="selectedChoiceIds.includes(choice.id) ? 'border-blue-600 bg-blue-600' : 'border-gray-400'"
-                  >{{ selectedChoiceIds.includes(choice.id) ? '✓' : '' }}</span>
-                </span>
-              </button>
-            </div>
-            <p v-if="groupErrorFor(group)" class="text-xs text-red-600 mt-1">{{ groupErrorFor(group) }}</p>
+    <!-- Unpaid -->
+    <section v-else-if="tab === 'unpaid'" aria-label="Unpaid orders">
+      <UiEmptyState
+        v-if="!unpaidOrders.length"
+        icon="check"
+        title="Every order is paid"
+        description="Orders sent unpaid from any terminal show up here."
+      />
+      <ul v-else class="unpaid-list">
+        <li v-for="o in unpaidOrders" :key="o.id" class="c-card unpaid">
+          <div class="unpaid__main">
+            <p class="unpaid__num">Order #{{ o.orderNumber }} <span class="c-muted c-small">{{ orderWhere(o) }}<template v-if="o.customerName"> · {{ o.customerName }}</template></span></p>
+            <p class="c-small c-muted">
+              Entered by {{ isMine(o.createdByUserId) ? 'you' : o.createdByName || 'online customer' }} at {{ formatTime(o.createdAt) }}
+              · {{ o.items.reduce((n, i) => n + i.quantity, 0) }} items
+            </p>
           </div>
-        </div>
+          <p class="unpaid__total c-num">${{ o.total.toFixed(2) }}</p>
+          <div class="unpaid__pay">
+            <select v-model="unpaidMethod[o.id]" class="c-select" :aria-label="`Payment method for order ${o.orderNumber}`">
+              <option :value="undefined" disabled hidden>Cash</option>
+              <option v-for="m in PAYMENT_METHODS" :key="m.id" :value="m.id">{{ m.label }}</option>
+            </select>
+            <UiButton variant="primary" :loading="payingId === o.id" @click="takePayment(o)">Take payment</UiButton>
+          </div>
+        </li>
+      </ul>
+    </section>
 
-        <div class="flex justify-end gap-2 p-4 border-t">
-          <button class="px-3 py-2 border rounded" @click="customizationOpen = false">Cancel</button>
-          <button
-            class="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60"
-            :disabled="!customizeValidation.ok || pendingMenuItem?.soldOut"
-            @click="confirmCustomization"
-          >Add to Order</button>
-        </div>
+    <!-- Log -->
+    <section v-else class="c-card c-card--flush" aria-label="Today's orders">
+      <UiEmptyState v-if="!todaysOrders.length" icon="receipt" title="No orders yet today" />
+      <div v-else class="c-table-wrap">
+        <table class="c-table">
+          <thead>
+            <tr>
+              <th scope="col">Order</th>
+              <th scope="col">Entered by</th>
+              <th scope="col">Paid by</th>
+              <th scope="col">Method</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="t-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="o in todaysOrders" :key="o.id">
+              <td><span class="c-strong">#{{ o.orderNumber }}</span> <span class="c-muted">{{ formatTime(o.createdAt) }}</span></td>
+              <td>{{ o.createdByName || 'Online customer' }}</td>
+              <td>
+                <template v-if="o.paidAt">{{ o.paidByName || '—' }} <span class="c-muted">{{ formatTime(o.paidAt) }}</span></template>
+                <UiBadge v-else-if="o.status !== 'cancelled'" tone="warning">Unpaid</UiBadge>
+                <span v-else class="c-muted">—</span>
+              </td>
+              <td>{{ o.paidAt ? methodLabel(o.paymentMethod) : '—' }}</td>
+              <td class="t-cap">{{ o.status.replace(/_/g, ' ') }}</td>
+              <td class="t-right c-num">${{ o.total.toFixed(2) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </div>
+    </section>
+
+    <ItemCustomizeSheet
+      :open="sheetItemId != null"
+      :item="sheetItem"
+      confirm-label="Add to order"
+      @close="sheetItemId = null"
+      @confirm="onSheetConfirm"
+    />
   </div>
 </template>
+
+<style scoped>
+.pos-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (min-width: 1280px) {
+  .pos-grid { grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); }
+  .pos-ticket { position: sticky; top: var(--space-6); }
+}
+
+.pos-menu { display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.pos-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+.pos-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.pos-item--off { background: var(--surface-sunken); }
+.pos-item--off .pos-item__name,
+.pos-item--off .pos-item__price { color: var(--ink-subtle); }
+.pos-item__name { margin: 0; font-weight: var(--weight-semibold); }
+.pos-item__price {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--text-h3);
+  font-weight: var(--weight-bold);
+  color: var(--primary-text);
+}
+.pos-item__actions { display: flex; gap: var(--space-1); margin-top: auto; }
+.pos-item__add { flex: 1; }
+
+.pos-ticket { display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+
+.pos-customer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.pos-customer-list {
+  margin-top: var(--space-1);
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+.pos-customer-option {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pos-customer-option:hover,
+.pos-customer-option:focus-visible { background: var(--surface-sunken); outline: none; }
+
+.pos-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+.pos-line { padding: var(--space-3) 0; border-bottom: 1px solid var(--line); }
+.pos-lines__empty { padding: var(--space-4) 0; }
+.pos-line__top, .pos-line__bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+.pos-line__name { margin: 0; font-weight: var(--weight-medium); }
+.pos-line__bottom { margin-top: var(--space-2); }
+.pos-qty { display: inline-flex; align-items: center; gap: var(--space-3); }
+.pos-qty__btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+  cursor: pointer;
+}
+.pos-qty__btn:hover { background: var(--surface-sunken); }
+.pos-qty__btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.pos-totals { margin: 0; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-small); }
+.pos-totals div { display: flex; justify-content: space-between; }
+.pos-totals div:first-child { font-size: var(--text-body); font-weight: var(--weight-semibold); }
+.pos-totals dt { color: var(--ink-muted); }
+.pos-totals div:first-child dt { color: var(--ink); }
+.pos-totals dd { margin: 0; }
+
+.pos-actions { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); }
+.pos-actions > :last-child { grid-column: 1 / -1; }
+
+.unpaid-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.unpaid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+.unpaid__main p { margin: 0; }
+.unpaid__num { font-weight: var(--weight-semibold); }
+.unpaid__total { margin: 0; font-size: var(--text-h3); font-weight: var(--weight-bold); }
+.unpaid__pay { grid-column: 1 / -1; display: flex; gap: var(--space-2); }
+.unpaid__pay .c-select { width: auto; min-width: 110px; }
+@media (min-width: 900px) {
+  .unpaid { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .unpaid__pay { grid-column: auto; }
+}
+
+.t-right { text-align: right; }
+.t-cap { text-transform: capitalize; }
+</style>

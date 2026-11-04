@@ -252,6 +252,31 @@ export function usePosStore() {
     return api('/orders/drivers');
   }
 
+  // A cashier takes payment for an unpaid order. Returns the payment record or null.
+  async function payOrder(orderId, paymentMethod) {
+    state.orderError = '';
+    try {
+      const payment = await api(`/orders/${orderId}/payment`, { method: 'PUT', body: { paymentMethod } });
+      applyPayment(payment);
+      return payment;
+    } catch (err) {
+      console.error('Failed to take payment:', err);
+      state.orderError = err.message;
+      return null;
+    }
+  }
+
+  // Merge a payment (from payOrder or the orderPaid realtime event) into state.
+  function applyPayment(payment) {
+    state.orders = state.orders.map((order) => (order.id === payment.id ? {
+      ...order,
+      paymentMethod: payment.paymentMethod,
+      paidAt: payment.paidAt,
+      paidByUserId: payment.paidByUserId,
+      paidByName: payment.paidByName,
+    } : order));
+  }
+
   async function updateOrderStatus(orderId, status) {
     try {
       await api(`/orders/${orderId}/status`, { method: 'PUT', body: { status } });
@@ -337,6 +362,8 @@ export function usePosStore() {
     updateLoyaltyCustomer,
     deleteLoyaltyCustomer,
     fetchMe,
+    payOrder,
+    applyPayment,
     updateMe,
     refreshMenu,
     loadOptionGroups,

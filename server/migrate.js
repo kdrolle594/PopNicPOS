@@ -347,6 +347,7 @@ async function run() {
       ['paid_by_user_id', `${userIdType} NULL`],
       ['paid_at', 'DATETIME NULL'],
     ];
+    const addedCashierColumns = new Set();
     for (const [column, definition] of cashierColumns) {
       const [found] = await conn.query(`
         SELECT 1 FROM information_schema.COLUMNS
@@ -356,6 +357,7 @@ async function run() {
         console.log(`✔  customer_order.${column} already exists — skipping`);
       } else {
         await conn.query(`ALTER TABLE customer_order ADD COLUMN ${column} ${definition}`);
+        addedCashierColumns.add(column);
         console.log(`✔  Added ${column} to customer_order`);
       }
     }
@@ -377,17 +379,26 @@ async function run() {
         console.log(`✔  Added ${name}`);
       }
     }
-    // Orders placed before this migration: the placing user is the creator,
-    // and orders that already have a payment method count as paid. Existing
-    // completed orders are marked credited so nobody is credited twice.
-    await conn.query(`
-      UPDATE customer_order SET created_by_user_id = customer_user_id
-      WHERE created_by_user_id IS NULL AND customer_user_id IS NOT NULL
-    `);
-    await conn.query(`
-      UPDATE customer_order SET points_credited = TRUE
-      WHERE status = 'completed' AND points_credited = FALSE
-    `);
+    // Backfill orders placed before this migration, only on the run that adds
+    // each column, so later unpaid or uncredited orders are never touched.
+    // Old orders: the placing user is the creator, every order counts as paid
+    // (the old POS took payment up front), and all count as credited (the old
+    // POS updated points itself).
+    if (addedCashierColumns.has('created_by_user_id')) {
+      await conn.query(`
+        UPDATE customer_order SET created_by_user_id = customer_user_id
+        WHERE customer_user_id IS NOT NULL
+      `);
+      console.log('✔  Backfilled created_by_user_id');
+    }
+    if (addedCashierColumns.has('paid_at')) {
+      await conn.query(`UPDATE customer_order SET paid_at = COALESCE(completed_at, created_at)`);
+      console.log('✔  Marked existing orders as paid');
+    }
+    if (addedCashierColumns.has('points_credited')) {
+      await conn.query(`UPDATE customer_order SET points_credited = TRUE`);
+      console.log('✔  Marked existing orders as credited');
+    }
 
     console.log('✔  Migration complete');
   } catch (err) {
