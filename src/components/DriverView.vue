@@ -193,14 +193,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-start justify-center p-4 sm:p-6">
-    <div class="bg-white rounded-2xl shadow-lg border w-full max-w-md p-5 space-y-4 mt-4">
+  <div class="min-h-screen bg-surface-sunken flex items-start justify-center p-4 sm:p-6">
+    <div class="bg-surface rounded-2xl shadow-lg border w-full max-w-md p-5 space-y-4 mt-4">
       <h1 class="text-xl font-bold">Deliveries</h1>
 
       <!-- Location banner -->
       <div
         v-if="permission === 'denied' || permission === 'unsupported'"
-        class="rounded-xl p-3 text-sm bg-orange-50 border border-orange-200 text-orange-800"
+        class="rounded-xl p-3 text-sm bg-warning/10 border border-warning/30 text-warning"
         role="alert"
       >
         Location access is off. Turn on location for this site in your browser settings and reload.
@@ -213,7 +213,7 @@ onUnmounted(() => {
           role="tab"
           :aria-selected="tab === 'available'"
           class="py-2 rounded-lg text-sm font-medium border"
-          :class="tab === 'available' ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-700'"
+          :class="tab === 'available' ? 'bg-primary text-white border-primary' : 'text-ink-muted'"
           @click="tab = 'available'"
         >
           Available ({{ available.length }})
@@ -222,28 +222,28 @@ onUnmounted(() => {
           role="tab"
           :aria-selected="tab === 'route'"
           class="py-2 rounded-lg text-sm font-medium border"
-          :class="tab === 'route' ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-700'"
+          :class="tab === 'route' ? 'bg-primary text-white border-primary' : 'text-ink-muted'"
           @click="tab = 'route'"
         >
           My route ({{ route.stops.length }})
         </button>
       </div>
 
-      <div v-if="loading" class="text-center text-gray-400 py-8">Loading orders…</div>
+      <div v-if="loading" class="text-center text-ink-subtle py-8">Loading orders…</div>
 
       <!-- Available -->
       <div v-else-if="tab === 'available'" class="space-y-3">
-        <p v-if="!available.length" class="text-center text-gray-400 py-8">No orders ready for delivery.</p>
-        <p v-else-if="permission === 'unknown'" class="text-xs text-gray-400">Waiting for your location…</p>
+        <p v-if="!available.length" class="text-center text-ink-subtle py-8">No orders ready for delivery.</p>
+        <p v-else-if="permission === 'unknown'" class="text-xs text-ink-subtle">Waiting for your location…</p>
         <div v-for="order in available" :key="order.id" class="border rounded-xl p-4 space-y-2">
           <div class="flex items-center justify-between">
             <p class="font-semibold">Order #{{ order.orderNumber }}</p>
-            <span v-if="distanceTo(order)" class="text-xs text-gray-500">{{ distanceTo(order) }}</span>
+            <span v-if="distanceTo(order)" class="text-xs text-ink-muted">{{ distanceTo(order) }}</span>
           </div>
-          <p class="text-sm text-gray-600">{{ order.items?.length || 0 }} item{{ order.items?.length === 1 ? '' : 's' }}</p>
-          <p class="text-sm text-gray-500">{{ order.deliveryAddress || 'No address notes' }}</p>
+          <p class="text-sm text-ink-muted">{{ order.items?.length || 0 }} item{{ order.items?.length === 1 ? '' : 's' }}</p>
+          <p class="text-sm text-ink-muted">{{ order.deliveryAddress || 'No address notes' }}</p>
           <button
-            class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
+            class="w-full py-2 rounded-lg bg-primary text-white text-sm font-medium disabled:opacity-50"
             :disabled="!canClaim || busy[order.id]"
             @click="addToRoute(order)"
           >
@@ -254,7 +254,7 @@ onUnmounted(() => {
 
       <!-- My route -->
       <div v-else class="space-y-3">
-        <p v-if="!route.stops.length" class="text-center text-gray-400 py-8">
+        <p v-if="!route.stops.length" class="text-center text-ink-subtle py-8">
           Your route is empty. Add orders from the Available tab.
         </p>
         <template v-else>
@@ -262,29 +262,29 @@ onUnmounted(() => {
 
           <div
             class="rounded-xl p-2 text-xs"
-            :class="gpsError ? 'bg-orange-50 border border-orange-200 text-orange-700' : 'bg-green-50 border border-green-200 text-green-700'"
+            :class="gpsError ? 'bg-warning/10 border border-warning/30 text-warning' : 'bg-positive/10 border border-positive/30 text-positive-text'"
             aria-live="polite"
           >
             <template v-if="gpsError">GPS problem: {{ gpsError }}</template>
             <template v-else>Sharing location · {{ secondsAgoText(lastSentAt, now) }}</template>
-            <span v-if="lastSentAt != null && route.source === 'fallback'" class="block text-gray-500">Road routing unavailable — ETAs are estimates.</span>
+            <span v-if="lastSentAt != null && route.source === 'fallback'" class="block text-ink-muted">Road routing unavailable — ETAs are estimates.</span>
           </div>
 
           <div v-for="stop in route.stops" :key="stop.orderId" class="border rounded-xl p-4 space-y-2">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span class="w-7 h-7 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center">
+                <span class="w-7 h-7 rounded-full bg-primary text-white text-sm font-bold flex items-center justify-center">
                   {{ stop.position }}
                 </span>
                 <div>
                   <p class="font-semibold">{{ stop.customerName || 'Customer' }}</p>
-                  <p class="text-xs text-gray-500">Order #{{ stop.orderNumber }} · ETA {{ formatClock(stop.etaAt) }}</p>
+                  <p class="text-xs text-ink-muted">Order #{{ stop.orderNumber }} · ETA {{ formatClock(stop.etaAt) }}</p>
                 </div>
               </div>
               <details class="relative">
-                <summary class="cursor-pointer text-gray-500 px-2" aria-label="More actions">⋯</summary>
+                <summary class="cursor-pointer text-ink-muted px-2" aria-label="More actions">⋯</summary>
                 <button
-                  class="absolute right-0 mt-1 whitespace-nowrap bg-white border rounded-lg shadow px-3 py-2 text-sm text-red-600"
+                  class="absolute right-0 mt-1 whitespace-nowrap bg-surface border rounded-lg shadow px-3 py-2 text-sm text-danger"
                   :disabled="busy[stop.orderId]"
                   @click="release(stop)"
                 >
@@ -292,16 +292,16 @@ onUnmounted(() => {
                 </button>
               </details>
             </div>
-            <p class="text-sm text-gray-600">{{ stop.deliveryAddress || 'No address notes' }}</p>
-            <a v-if="stop.customerPhone" :href="`tel:${stop.customerPhone}`" class="text-sm text-blue-600">
+            <p class="text-sm text-ink-muted">{{ stop.deliveryAddress || 'No address notes' }}</p>
+            <a v-if="stop.customerPhone" :href="`tel:${stop.customerPhone}`" class="text-sm text-primary-text">
               📞 {{ stop.customerPhone }}
             </a>
             <div class="grid grid-cols-2 gap-2">
-              <button class="py-2 rounded-lg border border-blue-300 text-blue-700 text-sm font-medium" @click="navigate(stop)">
+              <button class="c-btn c-btn--secondary c-btn--sm" @click="navigate(stop)">
                 Navigate
               </button>
               <button
-                class="py-2 rounded-lg bg-green-600 text-white text-sm font-medium disabled:opacity-50"
+                class="py-2 rounded-lg bg-positive text-white text-sm font-medium disabled:opacity-50"
                 :disabled="busy[stop.orderId]"
                 @click="markDelivered(stop)"
               >

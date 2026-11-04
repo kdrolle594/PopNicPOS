@@ -99,59 +99,59 @@ onMounted(loadUsers);
 </script>
 
 <template>
-  <div class="p-6 space-y-6 max-w-4xl mx-auto">
+  <div class="c-page c-page--narrow">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">User Management</h1>
-      <p class="text-sm text-gray-500 mt-1">
+      <h1 class="text-2xl font-bold text-ink">User Management</h1>
+      <p class="text-sm text-ink-muted mt-1">
         Create employee and driver accounts. Ask them to sign up using the same email.
       </p>
     </div>
 
     <!-- Alerts -->
-    <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">{{ error }}</div>
-    <div v-if="success" class="bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg p-3">{{ success }}</div>
+    <div v-if="error" class="bg-danger/10 border border-danger/30 text-danger text-sm rounded-lg p-3">{{ error }}</div>
+    <div v-if="success" class="bg-positive/10 border border-positive/30 text-positive-text text-sm rounded-lg p-3">{{ success }}</div>
 
     <!-- Create form -->
-    <div class="bg-white rounded-xl border p-5 space-y-4">
-      <h2 class="font-semibold text-gray-800">Add New Account</h2>
+    <div class="bg-surface rounded-xl border p-5 space-y-4">
+      <h2 class="font-semibold text-ink">Add New Account</h2>
       <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Full Name</label>
+          <label class="block text-xs font-medium text-ink-muted mb-1">Full Name</label>
           <input
             v-model="form.name"
-            class="w-full border rounded-lg px-3 py-2 text-sm"
+            class="c-input"
             placeholder="Jane Smith"
           />
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Email</label>
+          <label class="block text-xs font-medium text-ink-muted mb-1">Email</label>
           <input
             v-model="form.email"
             type="email"
-            class="w-full border rounded-lg px-3 py-2 text-sm"
+            class="c-input"
             placeholder="jane@example.com"
           />
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">
-            Phone <span class="text-gray-400 font-normal">(drivers)</span>
+          <label class="block text-xs font-medium text-ink-muted mb-1">
+            Phone <span class="text-ink-subtle font-normal">(drivers)</span>
           </label>
           <input
             v-model="form.phone"
             type="tel"
-            class="w-full border rounded-lg px-3 py-2 text-sm"
+            class="c-input"
             placeholder="555-0142"
           />
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Role</label>
-          <select v-model="form.role" class="w-full border rounded-lg px-3 py-2 text-sm">
+          <label class="block text-xs font-medium text-ink-muted mb-1">Role</label>
+          <select v-model="form.role" class="c-input">
             <option v-for="r in ROLES" :key="r" :value="r">{{ ROLE_LABELS[r] }}</option>
           </select>
         </div>
       </div>
       <button
-        class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+        class="px-5 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-lg transition-colors"
         @click="createUser"
       >
         Create Account
@@ -159,56 +159,56 @@ onMounted(loadUsers);
     </div>
 
     <!-- Users table -->
-    <div class="bg-white rounded-xl border overflow-hidden">
-      <div v-if="loading" class="p-8 text-center text-gray-400">Loading…</div>
-      <div v-else-if="!users.length" class="p-8 text-center text-gray-400">No staff accounts yet.</div>
+    <div class="bg-surface rounded-xl border overflow-hidden">
+      <div v-if="loading" class="p-8 text-center text-ink-subtle">Loading…</div>
+      <div v-else-if="!users.length" class="p-8 text-center text-ink-subtle">No staff accounts yet.</div>
       <table v-else class="w-full text-sm">
-        <thead class="bg-gray-50 border-b">
+        <thead class="bg-surface-sunken border-b">
           <tr>
-            <th class="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-            <th class="text-left px-4 py-3 font-medium text-gray-600">Email</th>
-            <th class="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
-            <th class="text-left px-4 py-3 font-medium text-gray-600">Role</th>
+            <th class="text-left px-4 py-3 font-medium text-ink-muted">Name</th>
+            <th class="text-left px-4 py-3 font-medium text-ink-muted">Email</th>
+            <th class="text-left px-4 py-3 font-medium text-ink-muted">Phone</th>
+            <th class="text-left px-4 py-3 font-medium text-ink-muted">Role</th>
             <th class="px-4 py-3"></th>
           </tr>
         </thead>
         <tbody class="divide-y">
-          <tr v-for="user in users" :key="user.id" class="hover:bg-gray-50">
+          <tr v-for="user in users" :key="user.id" class="hover:bg-surface-sunken">
             <template v-if="editingId === user.id">
               <td class="px-4 py-2">
-                <input v-model="editForm.name" class="border rounded px-2 py-1 w-full text-sm" />
+                <input v-model="editForm.name" class="c-input c-input--sm" />
               </td>
               <td class="px-4 py-2">
-                <input v-model="editForm.email" class="border rounded px-2 py-1 w-full text-sm" />
+                <input v-model="editForm.email" class="c-input c-input--sm" />
               </td>
               <td class="px-4 py-2">
-                <input v-model="editForm.phone" type="tel" class="border rounded px-2 py-1 w-full text-sm" placeholder="555-0142" />
+                <input v-model="editForm.phone" type="tel" class="c-input c-input--sm" placeholder="555-0142" />
               </td>
               <td class="px-4 py-2">
-                <select v-model="editForm.role" class="border rounded px-2 py-1 text-sm">
+                <select v-model="editForm.role" class="c-input c-input--sm w-auto">
                   <option v-for="r in ROLES" :key="r" :value="r">{{ ROLE_LABELS[r] }}</option>
                 </select>
               </td>
               <td class="px-4 py-2 flex gap-2 justify-end">
-                <button class="text-blue-600 hover:underline text-xs font-medium" @click="saveEdit(user.id)">Save</button>
-                <button class="text-gray-400 hover:underline text-xs" @click="editingId = null">Cancel</button>
+                <button class="text-primary-text hover:underline text-xs font-medium" @click="saveEdit(user.id)">Save</button>
+                <button class="text-ink-subtle hover:underline text-xs" @click="editingId = null">Cancel</button>
               </td>
             </template>
             <template v-else>
-              <td class="px-4 py-3 font-medium text-gray-800">{{ user.name }}</td>
-              <td class="px-4 py-3 text-gray-600">{{ user.email }}</td>
-              <td class="px-4 py-3 text-gray-600">
+              <td class="px-4 py-3 font-medium text-ink">{{ user.name }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ user.email }}</td>
+              <td class="px-4 py-3 text-ink-muted">
                 <span v-if="user.phone">{{ user.phone }}</span>
-                <span v-else class="text-gray-300">—</span>
+                <span v-else class="text-ink-subtle">—</span>
               </td>
               <td class="px-4 py-3">
-                <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary-text">
                   {{ ROLE_LABELS[user.role] || user.role }}
                 </span>
               </td>
               <td class="px-4 py-3 flex gap-3 justify-end">
-                <button class="text-gray-500 hover:text-blue-600 text-xs font-medium" @click="startEdit(user)">Edit</button>
-                <button class="text-gray-500 hover:text-red-600 text-xs font-medium" @click="deleteUser(user.id, user.name)">Remove</button>
+                <button class="text-ink-muted hover:text-primary-text text-xs font-medium" @click="startEdit(user)">Edit</button>
+                <button class="text-ink-muted hover:text-danger text-xs font-medium" @click="deleteUser(user.id, user.name)">Remove</button>
               </td>
             </template>
           </tr>

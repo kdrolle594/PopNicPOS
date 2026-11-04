@@ -87,42 +87,42 @@ async function removeItem(item) {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
+  <div class="c-page">
     <div class="flex items-center justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold">Inventory Management</h1>
-        <p class="text-gray-500">Track and manage stock levels</p>
+        <h1 class="c-title">Inventory Management</h1>
+        <p class="text-ink-muted">Track and manage stock levels</p>
       </div>
-      <button class="px-4 py-2 rounded bg-blue-600 text-white" @click="openCreate">Add Item</button>
+      <button class="c-btn c-btn--primary" @click="openCreate">Add Item</button>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="bg-white rounded-xl border p-4">
-        <p class="text-sm text-gray-500">Total Items</p>
+      <div class="bg-surface rounded-xl border p-4">
+        <p class="text-sm text-ink-muted">Total Items</p>
         <p class="text-2xl font-bold">{{ state.inventoryItems.length }}</p>
       </div>
-      <div class="bg-white rounded-xl border p-4">
-        <p class="text-sm text-gray-500">Low Stock Items</p>
-        <p class="text-2xl font-bold text-red-600">{{ lowStockItems.length }}</p>
+      <div class="bg-surface rounded-xl border p-4">
+        <p class="text-sm text-ink-muted">Low Stock Items</p>
+        <p class="text-2xl font-bold text-danger">{{ lowStockItems.length }}</p>
       </div>
-      <div class="bg-white rounded-xl border p-4">
-        <p class="text-sm text-gray-500">Inventory Value</p>
-        <p class="text-2xl font-bold text-green-600">${{ totalValue.toFixed(2) }}</p>
+      <div class="bg-surface rounded-xl border p-4">
+        <p class="text-sm text-ink-muted">Inventory Value</p>
+        <p class="text-2xl font-bold text-positive-text">${{ totalValue.toFixed(2) }}</p>
       </div>
     </div>
 
-    <div v-if="lowStockItems.length" class="bg-red-50 border border-red-200 rounded-xl p-4">
-      <h2 class="font-semibold text-red-800 mb-2">Low Stock Alert</h2>
+    <div v-if="lowStockItems.length" class="bg-danger/10 border border-danger/30 rounded-xl p-4">
+      <h2 class="font-semibold text-danger mb-2">Low Stock Alert</h2>
       <div class="space-y-2">
-        <div v-for="item in lowStockItems" :key="item.id" class="bg-white border rounded px-3 py-2 text-sm">
+        <div v-for="item in lowStockItems" :key="item.id" class="bg-surface border rounded-md px-3 py-2 text-sm">
           <span class="font-medium">{{ item.name }}</span> — {{ item.quantity }} {{ item.unit }} (reorder at {{ item.reorderLevel }})
         </div>
       </div>
     </div>
 
-    <div class="bg-white rounded-xl border overflow-x-auto">
+    <div class="bg-surface rounded-xl border overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-gray-50">
+        <thead class="bg-surface-sunken">
           <tr>
             <th class="text-left p-3">Name</th>
             <th class="text-left p-3">Qty</th>
@@ -143,16 +143,16 @@ async function removeItem(item) {
             <td class="p-3 font-semibold">${{ (item.quantity * item.costPerUnit).toFixed(2) }}</td>
             <td class="p-3">{{ item.reorderLevel }}</td>
             <td class="p-3">
-              <span class="px-2 py-1 rounded text-xs" :class="item.quantity <= item.reorderLevel ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'">
+              <span class="px-2 py-1 rounded-md text-xs" :class="item.quantity <= item.reorderLevel ? 'bg-danger/10 text-danger' : 'bg-positive/10 text-positive-text'">
                 {{ item.quantity <= item.reorderLevel ? 'Low' : 'OK' }}
               </span>
             </td>
             <td class="p-3">
               <div class="flex gap-1">
-                <button class="px-2 py-1 border rounded" @click="changeQuantity(item, -1)">-</button>
-                <button class="px-2 py-1 border rounded" @click="changeQuantity(item, 1)">+</button>
-                <button class="px-2 py-1 border rounded" @click="openEdit(item)">Edit</button>
-                <button class="px-2 py-1 border border-red-300 text-red-600 rounded" @click="removeItem(item)">Delete</button>
+                <button class="c-btn c-btn--secondary c-btn--sm" @click="changeQuantity(item, -1)">-</button>
+                <button class="c-btn c-btn--secondary c-btn--sm" @click="changeQuantity(item, 1)">+</button>
+                <button class="c-btn c-btn--secondary c-btn--sm" @click="openEdit(item)">Edit</button>
+                <button class="c-btn c-btn--danger c-btn--sm" @click="removeItem(item)">Delete</button>
               </div>
             </td>
           </tr>
@@ -161,40 +161,40 @@ async function removeItem(item) {
     </div>
 
     <div v-if="editOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl border w-full max-w-lg p-4 space-y-3">
+      <div class="bg-surface rounded-xl border w-full max-w-lg p-4 space-y-3">
         <h3 class="font-semibold text-lg">Edit Inventory Item</h3>
-        <input v-model="editingItem.name" class="w-full border rounded px-3 py-2" placeholder="Name" />
+        <input v-model="editingItem.name" class="c-input" placeholder="Name" />
         <div class="grid grid-cols-2 gap-2">
-          <input v-model.number="editingItem.quantity" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="Quantity" />
-          <input v-model="editingItem.unit" class="w-full border rounded px-3 py-2" placeholder="Unit" />
+          <input v-model.number="editingItem.quantity" type="number" min="0" class="c-input" placeholder="Quantity" />
+          <input v-model="editingItem.unit" class="c-input" placeholder="Unit" />
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <input v-model.number="editingItem.costPerUnit" type="number" step="0.01" class="w-full border rounded px-3 py-2" placeholder="Cost" />
-          <input v-model.number="editingItem.reorderLevel" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="Reorder level" />
+          <input v-model.number="editingItem.costPerUnit" type="number" step="0.01" class="c-input" placeholder="Cost" />
+          <input v-model.number="editingItem.reorderLevel" type="number" min="0" class="c-input" placeholder="Reorder level" />
         </div>
         <div class="flex justify-end gap-2">
-          <button class="px-3 py-2 rounded border" @click="editOpen = false">Cancel</button>
-          <button class="px-3 py-2 rounded bg-blue-600 text-white" @click="saveEdit">Save</button>
+          <button class="c-btn c-btn--secondary" @click="editOpen = false">Cancel</button>
+          <button class="c-btn c-btn--primary" @click="saveEdit">Save</button>
         </div>
       </div>
     </div>
 
     <!-- Create modal -->
     <div v-if="createOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl border w-full max-w-lg p-4 space-y-3">
+      <div class="bg-surface rounded-xl border w-full max-w-lg p-4 space-y-3">
         <h3 class="font-semibold text-lg">Add Inventory Item</h3>
-        <input v-model="newItem.name" class="w-full border rounded px-3 py-2" placeholder="Name" />
+        <input v-model="newItem.name" class="c-input" placeholder="Name" />
         <div class="grid grid-cols-2 gap-2">
-          <input v-model.number="newItem.quantity" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="Quantity" />
-          <input v-model="newItem.unit" class="w-full border rounded px-3 py-2" placeholder="Unit (lbs, cans, etc.)" />
+          <input v-model.number="newItem.quantity" type="number" min="0" class="c-input" placeholder="Quantity" />
+          <input v-model="newItem.unit" class="c-input" placeholder="Unit (lbs, cans, etc.)" />
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <input v-model.number="newItem.costPerUnit" type="number" step="0.01" class="w-full border rounded px-3 py-2" placeholder="Cost per unit" />
-          <input v-model.number="newItem.reorderLevel" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="Reorder level" />
+          <input v-model.number="newItem.costPerUnit" type="number" step="0.01" class="c-input" placeholder="Cost per unit" />
+          <input v-model.number="newItem.reorderLevel" type="number" min="0" class="c-input" placeholder="Reorder level" />
         </div>
         <div class="flex justify-end gap-2">
-          <button class="px-3 py-2 rounded border" @click="createOpen = false">Cancel</button>
-          <button class="px-3 py-2 rounded bg-blue-600 text-white" @click="saveCreate">Save</button>
+          <button class="c-btn c-btn--secondary" @click="createOpen = false">Cancel</button>
+          <button class="c-btn c-btn--primary" @click="saveCreate">Save</button>
         </div>
       </div>
     </div>

@@ -312,7 +312,7 @@ onUnmounted(() => {
           role="tab" :aria-selected="tab === 'unpaid'" @click="tab = 'unpaid'"
         >
           Unpaid
-          <UiBadge v-if="unpaidOrders.length" :tone="tab === 'unpaid' ? 'neutral' : 'primary'">{{ unpaidOrders.length }}</UiBadge>
+          <span v-if="unpaidOrders.length" class="pos-count c-num">{{ unpaidOrders.length }}</span>
         </button>
         <button
           class="c-tab" :class="{ 'c-tab--active': tab === 'log' }"
@@ -652,6 +652,19 @@ onUnmounted(() => {
   .unpaid { grid-template-columns: minmax(0, 1fr) auto auto; }
   .unpaid__pay { grid-column: auto; }
 }
+
+.pos-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  line-height: 20px;
+  text-align: center;
+}
+.c-tab--active .pos-count { background: var(--primary-ink); color: var(--primary-text); }
 
 .t-right { text-align: right; }
 .t-cap { text-transform: capitalize; }

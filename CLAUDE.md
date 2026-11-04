@@ -54,7 +54,7 @@ There is no Vue Router. `src/App.vue` chooses one of two shells:
 
 Checkout needs a login. The cart is saved to `sessionStorage` together with a "pending checkout" flag, so it survives the Auth0 redirect. After login, the auth watcher in `App.vue` reads the flag and sends the user to `'checkout'`.
 
-Reusable UI components live in `src/components/ui/` (`UiButton`, `UiModal`, `UiField`, `UiToast`, `UiIcon`, etc.). Design tokens live in `src/styles/tokens.css`.
+Staff screens use the console kit in `src/styles/console.css` (`c-page`, `c-title`, `c-card`, `c-input`, `c-btn`, `c-tabs`, `c-table`) and token Tailwind classes (`bg-primary`, `text-ink-muted`, `bg-danger/10`). Tailwind palette literals (`bg-blue-600`, `text-gray-500`) are not used. Reusable UI components live in `src/components/ui/` (`UiButton`, `UiModal`, `UiField`, `UiToast`, `UiIcon`, etc.). Design tokens live in `src/styles/tokens.css`.
 
 Singleton stores under `src/store/` (all managed by hand, not Pinia):
 - `usePosStore.js`: reactive POS state and async methods that call the backend REST API. Base URL comes from `VITE_API_URL` (empty = same-origin proxy in dev, full URL in prod). It no longer loads data when created. The storefront calls `loadPublic()` to fetch only the menu, and `App.vue` calls `loadAll()` after the role resolves.
@@ -65,9 +65,9 @@ Singleton stores under `src/store/` (all managed by hand, not Pinia):
 Auth0 is initialized in `src/main.js` via `createAuth0({ domain, clientId, audience })`. After login, components fetch the backend-resolved role via `useAuthStore.fetchRole()` before gating navigation.
 
 Key views and their roles:
-- **POS Terminal** — order creation (cashier, manager, admin)
+- **POS Terminal** — order creation with three tabs: New order ("Send unpaid" or "Take payment"), Unpaid (any cashier takes payment via `PUT /api/orders/:id/payment`), and Today's log (who entered and who was paid for each order, from `created_by_user_id` / `paid_by_user_id`) (cashier, manager, admin)
 - **Kitchen Display** (`KitchenDisplay.vue`) — real-time order queue, status progression (pending → preparing → ready → completed), a driver dropdown on ready delivery orders, and an "On the road" section listing `out_for_delivery` orders. Delivery orders are completed by the driver, or by staff from "On the road" (Mark delivered / Cancel) when a delivery gets stuck (kitchen, cashier, manager, admin)
-- **Storefront** (`StorefrontShell.vue` + `src/components/storefront/`) — menu browsing, item customization, cart, checkout, order tracking with a lazy-loaded Leaflet map (`DeliveryMap.vue`) (guests + customer)
+- **Storefront** (`StorefrontShell.vue` + `src/components/storefront/`) — menu browsing, item customization, cart, checkout, order tracking with a lazy-loaded Leaflet map (`DeliveryMap.vue`), and a Rewards view (`RewardsPanel.vue`, opened from the avatar) showing tier, progress and points history (guests + customer)
 - **Driver Portal** (`DriverView.vue`) — Available / My route tabs; drivers (and managers/admins) add several ready deliveries to one route; the portal posts GPS to `POST /api/driver/location` every 10 s while it has stops, and the server orders stops nearest-first (`server/lib/deliveryQueue.js`), gets road times/geometry from OpenRouteService (`server/lib/routing.js`), and stores `queue_position`/`eta_at` (driver, manager, admin)
 - **User Management** (`UserManagement.vue`) — admin only
 
@@ -87,7 +87,7 @@ Route-level auth policy is set in `server/app.js` — e.g. `GET /api/menu-items`
 `server/routes/orders.js` is the most complex route — order creation uses a MySQL transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links. Each menu-item line sends `choiceIds`; `server/lib/orderOptions.js` validates them against the item's attached option groups (shared rules in `shared/menuOptions.js`), prices the line (base + choice deltas, stored in `unit_price`), snapshots the choices into `customizations`, and stock for recipes and linked choices is deducted with rows locked. Cancelling restocks both.
 
 Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib/realtime.js`). Browsers never publish; only the server does.
-- `orders` channel (staff and drivers): `newOrder`, `orderStatusUpdated`, `orderDriverAssigned`, `driverRouteUpdated`
+- `orders` channel (staff and drivers): `newOrder`, `orderPaid`, `orderStatusUpdated`, `orderDriverAssigned`, `driverRouteUpdated`
 - `customer:{userId}` channel (that customer only): `orderStatusUpdated`, `orderDriverAssigned`, `deliveryUpdate`. `deliveryUpdate` is built only by `buildPublishes` in `server/lib/driverRoute.js`; `orderStatusUpdated` and `orderDriverAssigned` come from the emit helpers in `server/realtime.js`. None of them ever contains another customer's data
 - `menu` channel: the server publishes an empty `menuChanged` after menu/option/inventory edits and when an order or cancellation moves stock across an availability threshold; clients refetch `GET /api/menu-items`.
 - `GET /api/realtime/token` works for guests (subscribe-only on `menu`); customers get `menu` + their own `customer:{id}`; staff and drivers get `menu` + `orders`.
@@ -97,6 +97,10 @@ Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib
 `app_user` is the core identity row. `employee_profile` (joined by `user_id`) holds the `role` enum for staff (cashier, kitchen, manager, admin, driver); customers have no employee_profile row and fall back to `user_type = 'customer'` as their role. When adding a new staff role, update both the enum (via a migration in `server/migrate.js`) and the `ROLE_*` maps in `useAuthStore.js`.
 
 Menu options: `option_group` / `option_choice` / `menu_item_option_group` hold item options. A choice is available when switched on and its linked stock covers `inventory_qty`; an item is `soldOut` when switched off, short on a recipe ingredient, or a required group has no available choice (`server/lib/availability.js`).
+
+Loyalty: rules live in `shared/loyalty.js` (1 point per $10, tiers at 250/500/1000). Customer-placed orders store `points_earned` at creation and `server/lib/loyalty.js` credits them to `customer_profile` once, when the order moves to `completed` (`points_credited` guards against double credit). POS orders keep their own bookkeeping through `PUT /api/customers/:id`.
+
+Menu hours: `shared/menuHours.js` limits the Breakfast category to 6–11 AM. The server rejects out-of-hours items using `RESTAURANT_TZ`; the storefront and POS show them as unavailable.
 
 Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/:id/driver`) → `completed`; staff can also move `out_for_delivery` → `cancelled`. Status permission rules live in `server/lib/orderRules.js`. `driver_location` holds one row per driver with a non-empty route and is deleted when the route empties. Every route-changing transaction (claim, release, status change, `POST /api/driver/location`) first calls `lockDriver` (`server/lib/driverRoute.js`), so the lock order is always `app_user` (the driver's row, which always exists) → `driver_location` → `customer_order`.
 
@@ -108,11 +112,13 @@ Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/
 | `MYSQL_CA` | server | Aiven CA cert (PEM or base64 PEM). Without it, MySQL TLS verification is disabled (warning is logged) |
 | `ABLY_API_KEY` | server | Ably realtime publishing + token issuing (realtime is silently disabled without it) |
 | `ORS_API_KEY` | server | OpenRouteService key for road routes and ETAs (without it, straight-line ETAs and no route line) |
+| `RESTAURANT_TZ` | server | IANA time zone for menu hours (default `America/New_York`) |
 | `PORT` | server | HTTP port (default 3000, local dev only) |
 | `FRONTEND_URL` | server | CORS allowlist in production |
 | `AUTH0_DOMAIN` | server | Auth0 tenant domain (issuer) |
 | `AUTH0_AUDIENCE` | server | Auth0 API identifier for JWT audience check |
 | `VITE_API_URL` | frontend build | Backend base URL (empty = proxy) |
+| `VITE_RESTAURANT_TZ` | frontend build | Same zone as `RESTAURANT_TZ` for showing breakfast hours (default: device zone) |
 | `VITE_BASE_PATH` | frontend build | GitHub Pages base path |
 | `VITE_AUTH0_DOMAIN` | frontend build | Auth0 tenant for SPA SDK |
 | `VITE_AUTH0_CLIENT_ID` | frontend build | Auth0 SPA client ID |

@@ -123,7 +123,7 @@ function formatDate(value) {
         </ul>
       </UiCard>
 
-      <p class="rewards__account">
+      <p v-if="auth.state.appUser" class="rewards__account">
         Signed in as {{ auth.state.appUser?.email || auth.state.appUser?.name }}
         <UiButton variant="ghost" size="sm" @click="auth.logout()">Sign out</UiButton>
       </p>
