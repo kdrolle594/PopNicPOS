@@ -13,6 +13,10 @@ import {
 // lockDriver lock order: app_user(driver) -> driver_location -> customer_order.
 import { recalculateDriverRoute, lockDriver } from '../lib/driverRoute.js';
 import { pointsForTotal } from '../../shared/loyalty.js';
+import { isCategoryOpen, hoursFor } from '../../shared/menuHours.js';
+
+// Restaurant time zone for menu hours (breakfast). Servers usually run in UTC.
+const RESTAURANT_TZ = process.env.RESTAURANT_TZ || 'America/New_York';
 import { creditLoyalty } from '../lib/loyalty.js';
 
 const router = Router();
@@ -231,9 +235,18 @@ router.post('/', async (req, res) => {
     let optionData = { groups: new Map(), attachments: new Map() };
     if (menuItemIds.length > 0) {
       const [menuRows] = await conn.query(
-        'SELECT id, name, price, available FROM menu_item WHERE id IN (?)', [menuItemIds]
+        'SELECT id, name, category, price, available FROM menu_item WHERE id IN (?)', [menuItemIds]
       );
       for (const r of menuRows) menuMap.set(r.id, r);
+      const closed = menuRows.find((r) => !isCategoryOpen(r.category, new Date(), RESTAURANT_TZ));
+      if (closed) {
+        await conn.rollback();
+        const hours = hoursFor(closed.category);
+        return res.status(409).json({
+          error: `${closed.name} is only served ${hours.label}`,
+          menuItemId: closed.id,
+        });
+      }
       const [recipeRows] = await conn.query(
         'SELECT menu_item_id, inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id IN (?)',
         [menuItemIds]
