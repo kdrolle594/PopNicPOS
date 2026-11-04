@@ -339,6 +339,56 @@ async function run() {
     `);
     console.log('✔  driver_location table ready');
 
+    // 10. Loyalty crediting and dual cashier: who entered the order, who took
+    // payment and when, and whether the customer's points were credited.
+    const cashierColumns = [
+      ['points_credited', 'BOOLEAN NOT NULL DEFAULT FALSE'],
+      ['created_by_user_id', `${userIdType} NULL`],
+      ['paid_by_user_id', `${userIdType} NULL`],
+      ['paid_at', 'DATETIME NULL'],
+    ];
+    for (const [column, definition] of cashierColumns) {
+      const [found] = await conn.query(`
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_order' AND COLUMN_NAME = ?
+      `, [column]);
+      if (found.length) {
+        console.log(`✔  customer_order.${column} already exists — skipping`);
+      } else {
+        await conn.query(`ALTER TABLE customer_order ADD COLUMN ${column} ${definition}`);
+        console.log(`✔  Added ${column} to customer_order`);
+      }
+    }
+    for (const [name, column] of [
+      ['fk_customer_order_created_by', 'created_by_user_id'],
+      ['fk_customer_order_paid_by', 'paid_by_user_id'],
+    ]) {
+      const [fk] = await conn.query(`
+        SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_order' AND CONSTRAINT_NAME = ?
+      `, [name]);
+      if (fk.length) {
+        console.log(`✔  ${name} already exists — skipping`);
+      } else {
+        await conn.query(`
+          ALTER TABLE customer_order
+            ADD CONSTRAINT ${name} FOREIGN KEY (${column}) REFERENCES app_user(id) ON DELETE SET NULL
+        `);
+        console.log(`✔  Added ${name}`);
+      }
+    }
+    // Orders placed before this migration: the placing user is the creator,
+    // and orders that already have a payment method count as paid. Existing
+    // completed orders are marked credited so nobody is credited twice.
+    await conn.query(`
+      UPDATE customer_order SET created_by_user_id = customer_user_id
+      WHERE created_by_user_id IS NULL AND customer_user_id IS NOT NULL
+    `);
+    await conn.query(`
+      UPDATE customer_order SET points_credited = TRUE
+      WHERE status = 'completed' AND points_credited = FALSE
+    `);
+
     console.log('✔  Migration complete');
   } catch (err) {
     console.error('Migration failed:', err.message);

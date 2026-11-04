@@ -11,6 +11,7 @@ import CartPanel from '../storefront/CartPanel.vue';
 import MenuBrowser from '../storefront/MenuBrowser.vue';
 import CheckoutPanel from '../storefront/CheckoutPanel.vue';
 import OrderTracker from '../storefront/OrderTracker.vue';
+import RewardsPanel from '../storefront/RewardsPanel.vue';
 
 const auth = useAuthStore();
 const cart = useCartStore();
@@ -61,8 +62,10 @@ const userInitials = computed(() => {
         <button
           v-else
           class="sf-avatar"
+          :class="{ 'sf-avatar--active': view === 'rewards' }"
           type="button"
-          aria-label="Account menu"
+          aria-label="Rewards and account"
+          @click="go('rewards')"
         >
           {{ userInitials }}
         </button>
@@ -79,6 +82,7 @@ const userInitials = computed(() => {
       <MenuBrowser v-if="view === 'browse'" />
       <CheckoutPanel v-else-if="view === 'checkout'" />
       <OrderTracker v-else-if="view === 'orders'" />
+      <RewardsPanel v-else-if="view === 'rewards' && !auth.isGuest.value" />
     </main>
 
     <!-- Mobile bottom bar (≤ 639px) -->
@@ -117,6 +121,18 @@ const userInitials = computed(() => {
       >
         <UiIcon name="clock" :size="20" />
         <span class="sf-bottom-btn__label">Orders</span>
+      </button>
+
+      <button
+        v-if="!auth.isGuest.value"
+        class="sf-bottom-btn"
+        type="button"
+        :class="{ 'sf-bottom-btn--active': view === 'rewards' }"
+        @click="go('rewards')"
+        aria-label="Rewards"
+      >
+        <UiIcon name="loyalty" :size="20" />
+        <span class="sf-bottom-btn__label">Rewards</span>
       </button>
     </nav>
 
@@ -238,6 +254,11 @@ const userInitials = computed(() => {
 
 .sf-avatar:hover {
   background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.sf-avatar--active {
+  background: var(--primary);
+  color: var(--primary-ink);
 }
 
 .sf-avatar:focus-visible {

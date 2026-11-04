@@ -1,13 +1,8 @@
 import { reactive } from 'vue';
+import { getTier } from '../../shared/loyalty.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function getTier(points) {
-  if (points >= 1000) return 'platinum';
-  if (points >= 500) return 'gold';
-  if (points >= 250) return 'silver';
-  return 'bronze';
-}
 
 async function api(path, options = {}) {
   const base = import.meta.env.VITE_API_URL || '';

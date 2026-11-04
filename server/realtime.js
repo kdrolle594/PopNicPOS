@@ -24,6 +24,11 @@ export function emitNewOrder(order) {
   return publish('orders', 'newOrder', order);
 }
 
+// Staff only: an unpaid order was paid ({ id, paymentMethod, paidAt, paidByUserId, paidByName }).
+export function emitOrderPaid(payment) {
+  return publish('orders', 'orderPaid', payment);
+}
+
 // Staff get every status change; the order's own customer (if it belongs to an
 // account) gets it on their private channel.
 export async function emitOrderStatusUpdated(orderId, status, customerUserId = null) {
