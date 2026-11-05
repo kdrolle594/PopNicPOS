@@ -98,9 +98,9 @@ Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib
 
 Menu options: `option_group` / `option_choice` / `menu_item_option_group` hold item options. A choice is available when switched on and its linked stock covers `inventory_qty`; an item is `soldOut` when switched off, short on a recipe ingredient, or a required group has no available choice (`server/lib/availability.js`).
 
-Loyalty: rules live in `shared/loyalty.js` (1 point per $10, tiers at 250/500/1000). Customer-placed orders store `points_earned` at creation and `server/lib/loyalty.js` credits them to `customer_profile` once, when the order moves to `completed` (`points_credited` guards against double credit). POS orders keep their own bookkeeping through `PUT /api/customers/:id`.
+Loyalty: rules live in `shared/loyalty.js` (1 point per $10, tiers at 250/500/1000). Pizza toppings are paid add-ons (`TOPPING_PRICES` in `server/seedOptions.js`; migration 11 priced existing ones once, tracked in `app_data_migration`). Customer-placed orders store `points_earned` at creation and `server/lib/loyalty.js` credits them to `customer_profile` once, when the order moves to `completed` (`points_credited` guards against double credit). POS orders keep their own bookkeeping through `PUT /api/customers/:id`.
 
-Menu hours: `shared/menuHours.js` limits the Breakfast category to 6–11 AM. The server rejects out-of-hours items using `RESTAURANT_TZ`; the storefront and POS show them as unavailable.
+Menu hours: `shared/menuHours.js` limits the Breakfast category to 6–11 AM Eastern time. The server rejects out-of-hours items using `RESTAURANT_TZ`; the storefront and POS show them as unavailable.
 
 Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/:id/driver`) → `completed`; staff can also move `out_for_delivery` → `cancelled`. Status permission rules live in `server/lib/orderRules.js`. `driver_location` holds one row per driver with a non-empty route and is deleted when the route empties. Every route-changing transaction (claim, release, status change, `POST /api/driver/location`) first calls `lockDriver` (`server/lib/driverRoute.js`), so the lock order is always `app_user` (the driver's row, which always exists) → `driver_location` → `customer_order`.
 
@@ -118,7 +118,7 @@ Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/
 | `AUTH0_DOMAIN` | server | Auth0 tenant domain (issuer) |
 | `AUTH0_AUDIENCE` | server | Auth0 API identifier for JWT audience check |
 | `VITE_API_URL` | frontend build | Backend base URL (empty = proxy) |
-| `VITE_RESTAURANT_TZ` | frontend build | Same zone as `RESTAURANT_TZ` for showing breakfast hours (default: device zone) |
+| `VITE_RESTAURANT_TZ` | frontend build | Same zone as `RESTAURANT_TZ` for showing breakfast hours (default `America/New_York`) |
 | `VITE_BASE_PATH` | frontend build | GitHub Pages base path |
 | `VITE_AUTH0_DOMAIN` | frontend build | Auth0 tenant for SPA SDK |
 | `VITE_AUTH0_CLIENT_ID` | frontend build | Auth0 SPA client ID |

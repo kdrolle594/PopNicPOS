@@ -5,7 +5,7 @@ import { useCartStore }  from '../../store/useCartStore.js';
 import { useToast }      from '../../lib/useToast.js';
 import { subscribeMenu } from '../../lib/realtime.js';
 import { needsCustomization } from '../../../shared/menuOptions.js';
-import { isCategoryOpen, hoursFor } from '../../../shared/menuHours.js';
+import { isCategoryOpen, hoursFor, DEFAULT_RESTAURANT_TZ } from '../../../shared/menuHours.js';
 import UiChip            from '../ui/UiChip.vue';
 import UiSkeleton        from '../ui/UiSkeleton.vue';
 import UiEmptyState      from '../ui/UiEmptyState.vue';
@@ -86,7 +86,7 @@ const filteredItems = computed(() => {
 });
 
 // Serving hours (breakfast). Re-checked every minute.
-const RESTAURANT_TZ = import.meta.env.VITE_RESTAURANT_TZ || undefined;
+const RESTAURANT_TZ = import.meta.env.VITE_RESTAURANT_TZ || DEFAULT_RESTAURANT_TZ;
 const now = ref(new Date());
 let clock = null;
 function closedLabel(item) {

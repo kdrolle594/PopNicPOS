@@ -6,7 +6,7 @@ import { subscribeMenu, subscribeOrders } from '../lib/realtime.js';
 import { useToast } from '../lib/useToast.js';
 import { needsCustomization, linePrice, lineLabel, lineSignature } from '../../shared/menuOptions.js';
 import { pointsForTotal } from '../../shared/loyalty.js';
-import { isCategoryOpen, BREAKFAST } from '../../shared/menuHours.js';
+import { isCategoryOpen, BREAKFAST, DEFAULT_RESTAURANT_TZ } from '../../shared/menuHours.js';
 import UiButton from './ui/UiButton.vue';
 import UiBadge from './ui/UiBadge.vue';
 import UiChip from './ui/UiChip.vue';
@@ -55,7 +55,7 @@ const filteredMenuItems = computed(() => {
   return state.menuItems.filter((item) => item.category === selectedCategory.value);
 });
 
-const RESTAURANT_TZ = import.meta.env.VITE_RESTAURANT_TZ || undefined;
+const RESTAURANT_TZ = import.meta.env.VITE_RESTAURANT_TZ || DEFAULT_RESTAURANT_TZ;
 function closedForHours(item) {
   return !isCategoryOpen(item.category, now.value, RESTAURANT_TZ);
 }

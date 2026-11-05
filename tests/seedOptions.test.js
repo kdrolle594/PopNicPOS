@@ -14,7 +14,7 @@ describe('planAttachments', () => {
   it('attaches the right groups by name', () => {
     expect(planAttachments(ITEMS, new Set())).toEqual([
       { menuItemId: 1, groups: ['Pizza Size', 'Toppings'] },
-      { menuItemId: 2, groups: ['Pizza Size'] },
+      { menuItemId: 2, groups: ['Pizza Size', 'Toppings'] },
       { menuItemId: 3, groups: ['Wing Flavor'] },
       { menuItemId: 4, groups: ['Soda Flavor'] },
     ]);
@@ -64,5 +64,13 @@ describe('new items and extras', () => {
     const extras = OPTION_GROUPS.find((g) => g.name === 'Extras');
     expect(extras.minSelect).toBe(0);
     for (const c of extras.choices) expect(c.priceDelta).toBeGreaterThan(0);
+  });
+});
+
+describe('pizza toppings', () => {
+  it('charges for every topping', () => {
+    const toppings = OPTION_GROUPS.find((g) => g.name === 'Toppings');
+    expect(toppings.choices.length).toBe(11);
+    for (const c of toppings.choices) expect(c.priceDelta).toBeGreaterThan(0);
   });
 });

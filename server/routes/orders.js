@@ -13,10 +13,10 @@ import {
 // lockDriver lock order: app_user(driver) -> driver_location -> customer_order.
 import { recalculateDriverRoute, lockDriver } from '../lib/driverRoute.js';
 import { pointsForTotal } from '../../shared/loyalty.js';
-import { isCategoryOpen, hoursFor } from '../../shared/menuHours.js';
+import { isCategoryOpen, hoursFor, DEFAULT_RESTAURANT_TZ } from '../../shared/menuHours.js';
 
 // Restaurant time zone for menu hours (breakfast). Servers usually run in UTC.
-const RESTAURANT_TZ = process.env.RESTAURANT_TZ || 'America/New_York';
+const RESTAURANT_TZ = process.env.RESTAURANT_TZ || DEFAULT_RESTAURANT_TZ;
 import { creditLoyalty } from '../lib/loyalty.js';
 
 const router = Router();

@@ -1,6 +1,10 @@
 // Menu categories that are only sold during set hours.
 // Hours are in the restaurant's local time: [startHour, endHour).
 
+// The restaurant runs on Eastern time (EST/EDT). Override with RESTAURANT_TZ
+// on the server or VITE_RESTAURANT_TZ in the frontend build.
+export const DEFAULT_RESTAURANT_TZ = 'America/New_York';
+
 export const BREAKFAST = { category: 'Breakfast', startHour: 6, endHour: 11, label: '6–11 AM' };
 
 export const CATEGORY_HOURS = new Map([[BREAKFAST.category.toLowerCase(), BREAKFAST]]);

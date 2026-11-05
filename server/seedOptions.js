@@ -5,6 +5,13 @@
 // live database. Run with `npm run seed:options` after `node server/migrate.js`.
 import { pathToFileURL } from 'node:url';
 
+// Every pizza topping is a paid add-on. Managers change prices in Menu Management.
+export const TOPPING_PRICES = {
+  Pepperoni: 1.5, Ham: 1.5, Sausage: 1.5, Bacon: 1.5,
+  Pineapple: 1, Mushrooms: 1, Onions: 1, 'Bell Peppers': 1,
+  'Black Olives': 1, Tomatoes: 1, 'Extra Cheese': 1,
+};
+
 export const OPTION_GROUPS = [
   {
     name: 'Pizza Size', minSelect: 1, maxSelect: 1,
@@ -16,10 +23,7 @@ export const OPTION_GROUPS = [
   },
   {
     name: 'Toppings', minSelect: 0, maxSelect: 11,
-    choices: [
-      'Pepperoni', 'Ham', 'Sausage', 'Bacon', 'Pineapple', 'Mushrooms',
-      'Onions', 'Bell Peppers', 'Black Olives', 'Tomatoes', 'Extra Cheese',
-    ].map((name) => ({ name, priceDelta: 0 })),
+    choices: Object.entries(TOPPING_PRICES).map(([name, priceDelta]) => ({ name, priceDelta })),
   },
   {
     name: 'Wing Flavor', minSelect: 1, maxSelect: 1,
@@ -104,7 +108,8 @@ export function planAttachments(menuItems, attachedItemIds) {
   for (const item of menuItems) {
     if (attachedItemIds.has(item.id)) continue;
     const name = item.name.toLowerCase();
-    if (SPECIALTY_NAMES.has(name)) plan.push({ menuItemId: item.id, groups: ['Pizza Size'] });
+    // Specialty pizzas come with their toppings; extra ones are paid.
+    if (SPECIALTY_NAMES.has(name)) plan.push({ menuItemId: item.id, groups: ['Pizza Size', 'Toppings'] });
     else if (name.includes('pizza')) plan.push({ menuItemId: item.id, groups: ['Pizza Size', 'Toppings'] });
     else if (name.includes('wings')) plan.push({ menuItemId: item.id, groups: ['Wing Flavor'] });
     else if (name === 'soda') plan.push({ menuItemId: item.id, groups: ['Soda Flavor'] });
