@@ -145,7 +145,7 @@ router.get('/drivers', async (req, res) => {
                 WHERE o.driver_user_id = u.id AND o.status = 'out_for_delivery') AS activeStops
          FROM app_user u
          JOIN employee_profile ep ON ep.user_id = u.id
-        WHERE ep.role = 'driver' AND u.is_active = 1
+        WHERE ep.role = 'driver' AND u.is_active = TRUE
         ORDER BY name`
     );
     res.json(rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || null, activeStops: Number(r.activeStops) })));
@@ -339,22 +339,16 @@ router.post('/', async (req, res) => {
     }
     const paidAt = paidNow ? new Date() : null;
 
-    // Server-authoritative order number with retry on UNIQUE collision
-    let orderNumber, orderId;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const [[{ next }]] = await conn.query(
-          'SELECT COALESCE(MAX(order_number), 0) + 1 AS next FROM customer_order'
-        );
-        const [orderResult] = await conn.query(
-          `INSERT INTO customer_order
-             (order_number, order_type, status, total, customer_user_id, customer_name, customer_phone,
-              table_number, delivery_address, delivery_lat, delivery_lng,
-              notes, payment_method, points_earned, points_redeemed,
-              created_by_user_id, paid_by_user_id, paid_at)
-           VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            next,
+    // Order numbers come from a database sequence (customer_order_number_seq).
+    const [orderResult] = await conn.query(
+      `INSERT INTO customer_order
+         (order_type, status, total, customer_user_id, customer_name, customer_phone,
+          table_number, delivery_address, delivery_lat, delivery_lng,
+          notes, payment_method, points_earned, points_redeemed,
+          created_by_user_id, paid_by_user_id, paid_at)
+       VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id, order_number`,
+      [
             orderType || 'dine_in',
             serverTotal,
             req.user?.id || null,
@@ -371,15 +365,10 @@ router.post('/', async (req, res) => {
             req.user?.id || null,
             paidNow ? req.user.id : null,
             paidAt,
-          ]
-        );
-        orderNumber = next;
-        orderId = orderResult.insertId;
-        break;
-      } catch (e) {
-        if (e.code !== 'ER_DUP_ENTRY' || attempt === 2) throw e;
-      }
-    }
+      ]
+    );
+    const orderId = orderResult.insertId;
+    const orderNumber = orderResult.rows[0].order_number;
 
     // Insert order line items
     for (const item of items) {

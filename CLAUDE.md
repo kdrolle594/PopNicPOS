@@ -23,8 +23,14 @@ npm run seed
 # Add option groups, specialty pizzas and attachments without resetting data
 npm run seed:options
 
-# Run idempotent schema migrations (see server/migrate.js)
+# Apply database/schema.sql and one-time data steps (idempotent)
 node server/migrate.js
+
+# One-time copy from the old Aiven MySQL (MYSQL_URI) into DATABASE_URL; skips old orders unless --with-orders
+node server/tools/copyFromMysql.js --dry-run
+
+# Integration tests against a disposable Postgres that has schema + seed
+TEST_DATABASE_URL=postgres://... npm test
 
 # Run tests (vitest, tests/)
 npm test
@@ -41,9 +47,9 @@ npm run deploy
 **Split deployment**: frontend (GitHub Pages) + backend (Vercel serverless functions).
 
 - Frontend: Vue 3 + Vite + Tailwind CSS — `src/`
-- Backend: Express 5 + MySQL2 — `server/` (Vercel entry point re-exports the app from `api/index.js`; `vercel.json` rewrites `/api/*` to it. It also builds the Vite app into `dist/` and serves it with an SPA fallback, which gives preview deployments a working frontend)
+- Backend: Express 5 + node-postgres — `server/` (Vercel entry point re-exports the app from `api/index.js`; `vercel.json` rewrites `/api/*` to it. It also builds the Vite app into `dist/` and serves it with an SPA fallback, which gives preview deployments a working frontend)
 - Realtime: Ably (server publishes via `server/realtime.js`; browser clients get scoped tokens from `GET /api/realtime/token`)
-- Database: Aiven-hosted MySQL (connection via `MYSQL_URI`)
+- Database: Supabase Postgres (connection via `DATABASE_URL`). `server/db.js` keeps a mysql2-style API on top of `pg`: `query(sql, params)` with `?` placeholders (rewritten to `$n` by `server/lib/sql.js`, which also expands `IN (?)` arrays and bulk `VALUES ?`, adds `RETURNING *` to inserts for `insertId`, and maps unique/foreign-key errors to `ER_DUP_ENTRY` / `ER_NO_REFERENCED_ROW_2`), and `getConnection()` with `beginTransaction/commit/rollback/release`. Write new SQL in Postgres syntax (`ON CONFLICT`, `TRUE`/`FALSE`, `string_agg`). An error inside a transaction aborts it, so never catch and continue inside one
 - Auth: Auth0 (SPA SDK on the frontend, JWT validation on the backend)
 
 ### Frontend
@@ -94,7 +100,7 @@ Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib
 
 ### Data model note
 
-`app_user` is the core identity row. `employee_profile` (joined by `user_id`) holds the `role` enum for staff (cashier, kitchen, manager, admin, driver); customers have no employee_profile row and fall back to `user_type = 'customer'` as their role. When adding a new staff role, update both the enum (via a migration in `server/migrate.js`) and the `ROLE_*` maps in `useAuthStore.js`.
+`app_user` is the core identity row. `employee_profile` (joined by `user_id`) holds the `role` enum for staff (cashier, kitchen, manager, admin, driver); customers have no employee_profile row and fall back to `user_type = 'customer'` as their role. When adding a new staff role, update the `role` CHECK constraint in `database/schema.sql` (plus an `ALTER TABLE` for existing databases) and the `ROLE_*` maps in `useAuthStore.js`. Emails, inventory names and option group/choice names are `citext` (case-insensitive, like the old MySQL collation). Order numbers come from `customer_order_number_seq`. Every table has row level security on with no policies and no grants for `anon`/`authenticated`, so Supabase's REST API can't reach them; only the server's direct login can.
 
 Menu options: `option_group` / `option_choice` / `menu_item_option_group` hold item options. A choice is available when switched on and its linked stock covers `inventory_qty`; an item is `soldOut` when switched off, short on a recipe ingredient, or a required group has no available choice (`server/lib/availability.js`).
 
@@ -108,8 +114,9 @@ Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `MYSQL_URI` | server | Aiven MySQL connection string |
-| `MYSQL_CA` | server | Aiven CA cert (PEM or base64 PEM). Without it, MySQL TLS verification is disabled (warning is logged) |
+| `DATABASE_URL` | server | Supabase Postgres connection string (transaction pooler, port 6543 — suits Vercel serverless) |
+| `DATABASE_CA` | server | Supabase CA cert (PEM or base64 PEM). Without it, TLS verification is disabled (warning is logged) |
+| `MYSQL_URI` / `MYSQL_CA` | copy script | Old Aiven MySQL source, only for `server/tools/copyFromMysql.js` |
 | `ABLY_API_KEY` | server | Ably realtime publishing + token issuing (realtime is silently disabled without it) |
 | `ORS_API_KEY` | server | OpenRouteService key for road routes and ETAs (without it, straight-line ETAs and no route line) |
 | `RESTAURANT_TZ` | server | IANA time zone for menu hours (default `America/New_York`) |

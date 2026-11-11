@@ -21,7 +21,8 @@ router.post('/location', async (req, res) => {
     await conn.query(
       `INSERT INTO driver_location (driver_user_id, lat, lng, updated_at)
        VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE lat = VALUES(lat), lng = VALUES(lng), updated_at = VALUES(updated_at)`,
+       ON CONFLICT (driver_user_id) DO UPDATE
+         SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, updated_at = EXCLUDED.updated_at`,
       [req.user.id, loc.lat, loc.lng, now]
     );
     const { route, publishes } = await recalculateDriverRoute(conn, req.user.id, { now });

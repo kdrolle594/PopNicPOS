@@ -100,7 +100,7 @@ export function buildPublishes({ driverUserId, driver, stops, routeJson, recalcu
 
 function parseJson(value) {
   if (value == null) return null;
-  if (typeof value !== 'string') return value; // mysql2 already parses JSON columns
+  if (typeof value !== 'string') return value; // pg already parses JSONB columns
   try { return JSON.parse(value); } catch { return null; }
 }
 

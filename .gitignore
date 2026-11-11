@@ -62,7 +62,7 @@ dist/
 .env
 .env.example
 
-# Aiven CA certificate
+# Database CA certificates
 ca.pem
 
 # MCP config (contains credentials)

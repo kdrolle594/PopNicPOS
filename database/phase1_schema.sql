@@ -1,3 +1,4 @@
+-- HISTORICAL: the old MySQL (Aiven) schema. The app now runs on Postgres; see database/schema.sql.
 -- Phase 1 relational schema for PopNic POS
 -- Target: MySQL 8.0+ on Aiven for MySQL
 -- Tool:   MySQL Workbench (run via File > Run SQL Script, or paste into a query tab)

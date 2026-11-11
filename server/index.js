@@ -4,13 +4,10 @@ import pool from './db.js';
 
 try {
   const conn = await pool.getConnection();
-  const host = process.env.MYSQL_URI
-    ? new URL(process.env.MYSQL_URI).host
-    : `${process.env.MYSQL_HOST}:${process.env.MYSQL_PORT}`;
-  console.log(`✔  Connected to MySQL at ${host}`);
+  console.log(`✔  Connected to Postgres at ${new URL(process.env.DATABASE_URL).host}`);
   conn.release();
 } catch (err) {
-  console.warn('MySQL connection failed on startup:', err.message);
+  console.warn('Database connection failed on startup:', err.message);
   console.warn('API server will still start; database routes may fail until DB is reachable.');
 }
 
