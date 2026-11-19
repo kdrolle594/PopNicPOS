@@ -25,7 +25,7 @@ async function run() {
       await conn.beginTransaction();
       try {
         // A step returns false when its data isn't there yet (e.g. before the
-        // Aiven copy); it is then not recorded and runs again next time.
+        // seed); it is then not recorded and runs again next time.
         if ((await fn()) === false) {
           await conn.rollback();
           console.log(`…  ${name} has nothing to change yet — will retry on the next run`);

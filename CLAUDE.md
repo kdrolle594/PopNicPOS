@@ -26,9 +26,6 @@ npm run seed:options
 # Apply database/schema.sql and one-time data steps (idempotent)
 node server/migrate.js
 
-# One-time copy from the old Aiven MySQL (MYSQL_URI) into DATABASE_URL; skips old orders unless --with-orders
-node server/tools/copyFromMysql.js --dry-run
-
 # Integration tests against a disposable Postgres that has schema + seed
 TEST_DATABASE_URL=postgres://... npm test
 
@@ -79,7 +76,7 @@ Key views and their roles:
 
 ### Backend
 
-`server/app.js` builds the Express app (CORS, routes, auth policy); `server/index.js` is the local dev entry that verifies the MySQL connection (but continues on failure) and listens on `PORT`; `api/index.js` exports the same app for Vercel. A health check is exposed at `GET /api/health`.
+`server/app.js` builds the Express app (CORS, routes, auth policy); `server/index.js` is the local dev entry that verifies the database connection (but continues on failure) and listens on `PORT`; `api/index.js` exports the same app for Vercel. A health check is exposed at `GET /api/health`.
 
 Routes: `/api/auth`, `/api/realtime`, `/api/menu-items`, `/api/option-groups`, `/api/option-choices`, `/api/inventory-items`, `/api/orders`, `/api/customers`, `/api/users`, `/api/driver`.
 
@@ -90,7 +87,7 @@ Routes: `/api/auth`, `/api/realtime`, `/api/menu-items`, `/api/option-groups`, `
 
 Route-level auth policy is set in `server/app.js` — e.g. `GET /api/menu-items` is public, mutations require manager+; `/api/orders` POST allows customers, other verbs allow all operational roles; `/api/inventory-items` requires manager+; `/api/option-groups` and `/api/option-choices` are manager+; `/api/customers` allows cashier+ (POS loyalty flow) except DELETE which is manager+, with `/me` open to any authenticated user. `/api/driver` (location posts) allows driver, manager and admin. `GET /api/orders/drivers` is cashier+kitchen+manager+admin.
 
-`server/routes/orders.js` is the most complex route — order creation uses a MySQL transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links. Each menu-item line sends `choiceIds`; `server/lib/orderOptions.js` validates them against the item's attached option groups (shared rules in `shared/menuOptions.js`), prices the line (base + choice deltas, stored in `unit_price`), snapshots the choices into `customizations`, and stock for recipes and linked choices is deducted with rows locked. Cancelling restocks both.
+`server/routes/orders.js` is the most complex route — order creation uses a database transaction that inserts the order header, inserts line items, and deducts inventory using `menu_item_inventory` recipe links. Each menu-item line sends `choiceIds`; `server/lib/orderOptions.js` validates them against the item's attached option groups (shared rules in `shared/menuOptions.js`), prices the line (base + choice deltas, stored in `unit_price`), snapshots the choices into `customizations`, and stock for recipes and linked choices is deducted with rows locked. Cancelling restocks both.
 
 Realtime (`server/realtime.js` + `server/routes/realtime.js`, client in `src/lib/realtime.js`). Browsers never publish; only the server does.
 - `orders` channel (staff and drivers): `newOrder`, `orderPaid`, `orderStatusUpdated`, `orderDriverAssigned`, `driverRouteUpdated`
@@ -116,7 +113,6 @@ Delivery status flow: `ready` → `out_for_delivery` (only via `PUT /api/orders/
 |---|---|---|
 | `DATABASE_URL` | server | Supabase Postgres connection string (transaction pooler, port 6543 — suits Vercel serverless) |
 | `DATABASE_CA` | server | Supabase CA cert (PEM or base64 PEM). Without it, TLS verification is disabled (warning is logged) |
-| `MYSQL_URI` / `MYSQL_CA` | copy script | Old Aiven MySQL source, only for `server/tools/copyFromMysql.js` |
 | `ABLY_API_KEY` | server | Ably realtime publishing + token issuing (realtime is silently disabled without it) |
 | `ORS_API_KEY` | server | OpenRouteService key for road routes and ETAs (without it, straight-line ETAs and no route line) |
 | `RESTAURANT_TZ` | server | IANA time zone for menu hours (default `America/New_York`) |
