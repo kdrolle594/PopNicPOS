@@ -59,7 +59,7 @@ async function promotePreRegisteredEmployee(userId, email) {
 
     await conn.query(
       `INSERT INTO employee_profile (user_id, role) VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+       ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role`,
       [userId, p.role]
     );
 

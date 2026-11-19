@@ -102,28 +102,28 @@ async function removeCustomer(customer) {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
+  <div class="c-page">
     <div class="flex items-center justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold">Loyalty Program</h1>
-        <p class="text-gray-500">Manage customers and reward points</p>
+        <h1 class="c-title">Loyalty Program</h1>
+        <p class="text-ink-muted">Manage customers and reward points</p>
       </div>
-      <button class="px-4 py-2 rounded bg-blue-600 text-white" @click="openCreate">Add Customer</button>
+      <button class="c-btn c-btn--primary" @click="openCreate">Add Customer</button>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Total Customers</p><p class="text-2xl font-bold">{{ stats.totalCustomers }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Total Points</p><p class="text-2xl font-bold">{{ stats.totalPoints }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Avg Points</p><p class="text-2xl font-bold">{{ stats.avgPoints.toFixed(0) }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Lifetime Value</p><p class="text-2xl font-bold">${{ stats.totalLifetimeValue.toFixed(2) }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Total Customers</p><p class="text-2xl font-bold">{{ stats.totalCustomers }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Total Points</p><p class="text-2xl font-bold">{{ stats.totalPoints }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Avg Points</p><p class="text-2xl font-bold">{{ stats.avgPoints.toFixed(0) }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Lifetime Value</p><p class="text-2xl font-bold">${{ stats.totalLifetimeValue.toFixed(2) }}</p></div>
     </div>
 
-    <div class="bg-white rounded-xl border p-4 space-y-4">
-      <input v-model="searchTerm" class="w-full border rounded px-3 py-2" placeholder="Search by name, phone, or email" />
+    <div class="bg-surface rounded-xl border p-4 space-y-4">
+      <input v-model="searchTerm" class="c-input" placeholder="Search by name, phone, or email" />
 
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
-          <thead class="bg-gray-50">
+          <thead class="bg-surface-sunken">
             <tr>
               <th class="text-left p-3">Name</th>
               <th class="text-left p-3">Phone</th>
@@ -137,7 +137,7 @@ async function removeCustomer(customer) {
           </thead>
           <tbody>
             <tr v-if="!filteredCustomers.length">
-              <td colspan="8" class="p-4 text-center text-gray-500">No customers found.</td>
+              <td colspan="8" class="p-4 text-center text-ink-muted">No customers found.</td>
             </tr>
             <tr v-for="customer in filteredCustomers" :key="customer.id" class="border-t">
               <td class="p-3 font-medium">{{ customer.name || '-' }}</td>
@@ -149,8 +149,8 @@ async function removeCustomer(customer) {
               <td class="p-3">${{ (customer.totalSpent ?? 0).toFixed(2) }}</td>
               <td class="p-3">
                 <div class="flex gap-2">
-                  <button class="px-2 py-1 border rounded" @click="openEdit(customer)">Edit</button>
-                  <button class="px-2 py-1 border border-red-300 text-red-600 rounded" @click="removeCustomer(customer)">Delete</button>
+                  <button class="c-btn c-btn--secondary c-btn--sm" @click="openEdit(customer)">Edit</button>
+                  <button class="c-btn c-btn--danger c-btn--sm" @click="removeCustomer(customer)">Delete</button>
                 </div>
               </td>
             </tr>
@@ -160,43 +160,43 @@ async function removeCustomer(customer) {
     </div>
 
     <div v-if="modalOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl border w-full max-w-lg p-4 space-y-3">
+      <div class="bg-surface rounded-xl border w-full max-w-lg p-4 space-y-3">
         <h2 class="font-semibold text-lg">{{ editingId ? 'Edit Customer' : 'Add Customer' }}</h2>
         <div>
           <label class="block text-sm font-medium mb-1">Name *</label>
-          <input v-model="form.name" class="w-full border rounded px-3 py-2" placeholder="Enter name" />
+          <input v-model="form.name" class="c-input" placeholder="Enter name" />
         </div>
 
         <div>
           <label class="block text-sm font-medium mb-1">Phone *</label>
-          <input v-model="form.phone" class="w-full border rounded px-3 py-2" placeholder="Enter phone" />
+          <input v-model="form.phone" class="c-input" placeholder="Enter phone" />
         </div>
 
         <div>
           <label class="block text-sm font-medium mb-1">Email</label>
-          <input v-model="form.email" class="w-full border rounded px-3 py-2" placeholder="Enter email" />
+          <input v-model="form.email" class="c-input" placeholder="Enter email" />
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
             <label class="block text-sm font-medium mb-1">Points</label>
-            <input v-model.number="form.points" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="0" />
+            <input v-model.number="form.points" type="number" min="0" class="c-input" placeholder="0" />
           </div>
 
           <div>
             <label class="block text-sm font-medium mb-1">Orders Count</label>
-            <input v-model.number="form.ordersCount" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="0" />
+            <input v-model.number="form.ordersCount" type="number" min="0" class="c-input" placeholder="0" />
           </div>
 
           <div>
             <label class="block text-sm font-medium mb-1">Total Spent</label>
-            <input v-model.number="form.totalSpent" type="number" min="0" step="0.01" class="w-full border rounded px-3 py-2" placeholder="0.00" />
+            <input v-model.number="form.totalSpent" type="number" min="0" step="0.01" class="c-input" placeholder="0.00" />
           </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button class="px-3 py-2 border rounded" @click="modalOpen = false">Cancel</button>
-          <button class="px-3 py-2 bg-blue-600 text-white rounded" @click="saveCustomer">Save</button>
+          <button class="c-btn c-btn--secondary" @click="modalOpen = false">Cancel</button>
+          <button class="c-btn c-btn--primary" @click="saveCustomer">Save</button>
         </div>
       </div>
     </div>

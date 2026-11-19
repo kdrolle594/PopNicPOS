@@ -20,8 +20,8 @@ PopNicPOS is a full-stack, role-based Point of Sale (POS) system for food delive
 - **Express-OAuth2-JWT-Bearer** — JWT validation middleware
 
 ### Database
-- **MySQL** — Hosted on Aiven
-- Connection via `MYSQL_URI` environment variable
+- **Postgres** — Hosted on Supabase
+- Connection via `DATABASE_URL` environment variable
 
 ### Deployment
 - **Frontend** — GitHub Pages (static hosting)
@@ -310,7 +310,7 @@ When adding a new role:
 
 | Variable | Used By | Purpose | Example |
 |----------|---------|---------|---------|
-| `MYSQL_URI` | server | Aiven MySQL connection string | `mysql2://user:password@host:port/db` |
+| `DATABASE_URL` | server | Supabase Postgres connection string | `postgresql://postgres.<ref>:<password>@<region>.pooler.supabase.com:6543/postgres` |
 | `PORT` | server | HTTP port for Express | `3000` (default) |
 | `FRONTEND_URL` | server | CORS allowlist in production | `https://kdrolle594.github.io/PopNicPOS` |
 | `AUTH0_DOMAIN` | server | Auth0 tenant domain (JWT issuer) | `your-tenant.auth0.com` |
@@ -329,7 +329,7 @@ When deploying to GitHub Pages + Railway:
 - `VITE_API_URL` = full backend URL (e.g., `https://popnic-backend.railway.app`)
 - `VITE_BASE_PATH` = `/PopNicPOS`
 - `FRONTEND_URL` = GitHub Pages URL for CORS
-- Backend variables remain the same (AUTH0_DOMAIN, MYSQL_URI, etc.)
+- Backend variables remain the same (AUTH0_DOMAIN, DATABASE_URL, etc.)
 
 ---
 
@@ -393,7 +393,7 @@ npm run deploy
 | Issue | Solution |
 |-------|----------|
 | "not a git repository" | Ensure you're in the project root: `d:\Dev Work\PopNicPOS` |
-| MySQL connection fails | Verify `MYSQL_URI` is correct and Aiven database is running |
+| Database connection fails | Verify `DATABASE_URL` is correct and the Supabase project is not paused |
 | Auth0 login fails | Check `VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID`, and `VITE_AUTH0_AUDIENCE` |
 | Frontend can't reach API | In dev, Vite proxy routes `/api` to port 3000; ensure backend is running |
 | Order creation fails | Check inventory levels; transaction rolls back if stock insufficient |

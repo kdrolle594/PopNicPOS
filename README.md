@@ -1,6 +1,6 @@
 # PopNic POS
 
-All-in-one restaurant POS system with a customer ordering portal, kitchen display, and driver delivery tracking. Split deployment — frontend on GitHub Pages, backend on Railway, database on Aiven-hosted MySQL.
+All-in-one restaurant POS system with a customer ordering portal, kitchen display, and driver delivery tracking. Split deployment — frontend on GitHub Pages, backend on Railway, database on Supabase Postgres.
 
 Live frontend: <https://kdrolle594.github.io/PopNicPOS>
 
@@ -64,7 +64,7 @@ When adding a new staff role, update both the enum (via a migration in [server/m
    npm install
    ```
 
-2. Create a `.env` at the repo root with `MYSQL_URI`, `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, and the `VITE_*` values (see the table below).
+2. Create a `.env` at the repo root with `DATABASE_URL`, `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, and the `VITE_*` values (see the table below).
 
 3. Apply schema and seed data (first run):
 
@@ -97,7 +97,8 @@ node server/migrate.js   # Idempotent schema migrations
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `MYSQL_URI` | server | Aiven MySQL connection string |
+| `DATABASE_URL` | server | Supabase Postgres connection string (transaction pooler, port 6543) |
+| `DATABASE_CA` | server | Supabase CA certificate (PEM or base64 PEM). Without it, TLS verification is disabled (warning is logged) |
 | `PORT` | server | HTTP port (default 3000) |
 | `FRONTEND_URL` | server | CORS allowlist in production |
 | `AUTH0_DOMAIN` | server | Auth0 tenant domain (issuer) |
@@ -112,6 +113,6 @@ node server/migrate.js   # Idempotent schema migrations
 
 - **Frontend → GitHub Pages** via `npm run deploy` (`gh-pages -d dist`). `VITE_BASE_PATH` must match the Pages subpath.
 - **Backend → Railway** using Nixpacks ([nixpacks.toml](nixpacks.toml) forces the Node provider and runs `node server/index.js`). `npm ci --omit=dev` keeps the image lean.
-- **Database → Aiven MySQL**, referenced via `MYSQL_URI`.
+- **Database → Supabase Postgres**, referenced via `DATABASE_URL`. Schema: `database/schema.sql`, applied by `node server/migrate.js`.
 
 Health check: `GET /api/health`.

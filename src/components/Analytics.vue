@@ -258,13 +258,13 @@ const barOptions = computed(() => ({
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
+  <div class="c-page">
     <div class="flex items-center justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold">Analytics &amp; Reports</h1>
+        <h1 class="c-title">Analytics &amp; Reports</h1>
         <p class="text-ink-muted">Track business performance</p>
       </div>
-      <select v-model="timeRange" class="border border-line rounded-md px-3 py-2 bg-surface">
+      <select v-model="timeRange" class="c-input w-auto">
         <option value="week">Last 7 Days</option>
         <option value="month">Last 30 Days</option>
         <option value="year">Last Year</option>

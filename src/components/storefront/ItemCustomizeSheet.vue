@@ -11,6 +11,8 @@ const props = defineProps({
   open: { type: Boolean, required: true },
   // Pass the live item from the store: it updates when the menu refreshes.
   item: { type: Object, default: null },
+  // Confirm button text before the price, e.g. "Add to order" at the POS.
+  confirmLabel: { type: String, default: 'Add to Cart' },
 });
 
 const emit = defineEmits(['close', 'confirm']);
@@ -175,7 +177,7 @@ function handleConfirm() {
     <template #footer>
       <UiButton variant="secondary" @click="emit('close')">Cancel</UiButton>
       <UiButton variant="primary" :disabled="soldOut || !validation.ok" @click="handleConfirm">
-        Add to Cart — ${{ price.toFixed(2) }}
+        {{ confirmLabel }} — ${{ price.toFixed(2) }}
       </UiButton>
     </template>
   </UiModal>

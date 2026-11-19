@@ -5,6 +5,7 @@ import { useCartStore }  from '../../store/useCartStore.js';
 import { useToast }      from '../../lib/useToast.js';
 import { subscribeMenu } from '../../lib/realtime.js';
 import { needsCustomization } from '../../../shared/menuOptions.js';
+import { isCategoryOpen, hoursFor, DEFAULT_RESTAURANT_TZ } from '../../../shared/menuHours.js';
 import UiChip            from '../ui/UiChip.vue';
 import UiSkeleton        from '../ui/UiSkeleton.vue';
 import UiEmptyState      from '../ui/UiEmptyState.vue';
@@ -44,6 +45,7 @@ let unsubscribeMenu = null;
 let disposed = false;
 
 onMounted(async () => {
+  clock = setInterval(() => { now.value = new Date(); }, 60_000);
   if (cart.consumeResetNotice()) toast.info('Your cart was cleared because the menu changed.');
   if (!store.state.menuItems.length) {
     await store.loadPublic();
@@ -60,6 +62,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   disposed = true;
+  clearInterval(clock);
   if (unsubscribeMenu) unsubscribeMenu();
 });
 
@@ -82,6 +85,15 @@ const filteredItems = computed(() => {
   return available.filter((i) => i.category === selectedCategory.value);
 });
 
+// Serving hours (breakfast). Re-checked every minute.
+const RESTAURANT_TZ = import.meta.env.VITE_RESTAURANT_TZ || DEFAULT_RESTAURANT_TZ;
+const now = ref(new Date());
+let clock = null;
+function closedLabel(item) {
+  if (isCategoryOpen(item.category, now.value, RESTAURANT_TZ)) return '';
+  return `Served ${hoursFor(item.category).label}`;
+}
+
 // ── Cart actions ──────────────────────────────────────────────────────────────
 
 function onAdd(item) {
@@ -90,7 +102,7 @@ function onAdd(item) {
 }
 
 function onCustomize(item) {
-  if (item.soldOut) return;
+  if (item.soldOut || closedLabel(item)) return;
   if (!needsCustomization(item)) {
     onAdd(item);
     return;
@@ -159,6 +171,7 @@ function onSheetClose() {
         v-for="item in filteredItems"
         :key="item.id"
         :item="item"
+        :closed-label="closedLabel(item)"
         @add="onCustomize"
         @customize="onCustomize"
       />

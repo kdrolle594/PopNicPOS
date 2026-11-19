@@ -1,3 +1,4 @@
+-- HISTORICAL: the old MySQL (Aiven) schema. The app now runs on Postgres; see database/schema.sql.
 -- Phase 1 relational schema for PopNic POS
 -- Target: MySQL 8.0+ on Aiven for MySQL
 -- Tool:   MySQL Workbench (run via File > Run SQL Script, or paste into a query tab)
@@ -134,6 +135,10 @@ CREATE TABLE IF NOT EXISTS customer_order (
   payment_method    ENUM('cash','card','digital') DEFAULT NULL,
   points_earned     INT           NOT NULL DEFAULT 0,
   points_redeemed   INT           NOT NULL DEFAULT 0,
+  points_credited   BOOLEAN       NOT NULL DEFAULT FALSE,
+  created_by_user_id BIGINT       DEFAULT NULL,
+  paid_by_user_id   BIGINT        DEFAULT NULL,
+  paid_at           DATETIME      DEFAULT NULL,
 
   created_at        TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at      TIMESTAMP     NULL DEFAULT NULL,
@@ -149,6 +154,10 @@ CREATE TABLE IF NOT EXISTS customer_order (
     FOREIGN KEY (customer_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
   CONSTRAINT fk_customer_order_driver_user
     FOREIGN KEY (driver_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
+  CONSTRAINT fk_customer_order_created_by
+    FOREIGN KEY (created_by_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
+  CONSTRAINT fk_customer_order_paid_by
+    FOREIGN KEY (paid_by_user_id) REFERENCES app_user(id) ON DELETE SET NULL,
   CONSTRAINT chk_order_total           CHECK (total >= 0),
   CONSTRAINT chk_order_points_earned   CHECK (points_earned >= 0),
   CONSTRAINT chk_order_points_redeemed CHECK (points_redeemed >= 0)

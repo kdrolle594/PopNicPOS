@@ -187,24 +187,24 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
+  <div class="c-page">
     <div class="flex items-center justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold">Menu Management</h1>
-        <p class="text-gray-500">Add, edit, and manage menu items</p>
+        <h1 class="c-title">Menu Management</h1>
+        <p class="text-ink-muted">Add, edit, and manage menu items</p>
       </div>
-      <button v-if="activeTab === 'items'" class="px-4 py-2 rounded bg-blue-600 text-white" @click="openCreate">Add Menu Item</button>
+      <button v-if="activeTab === 'items'" class="c-btn c-btn--primary" @click="openCreate">Add Menu Item</button>
     </div>
 
     <div class="flex gap-2 border-b">
       <button
         class="px-3 py-2 text-sm -mb-px border-b-2"
-        :class="activeTab === 'items' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500'"
+        :class="activeTab === 'items' ? 'border-primary text-primary-text' : 'border-transparent text-ink-muted'"
         @click="activeTab = 'items'"
       >Menu Items</button>
       <button
         class="px-3 py-2 text-sm -mb-px border-b-2"
-        :class="activeTab === 'options' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500'"
+        :class="activeTab === 'options' ? 'border-primary text-primary-text' : 'border-transparent text-ink-muted'"
         @click="activeTab = 'options'"
       >Options</button>
     </div>
@@ -213,15 +213,15 @@ onUnmounted(() => {
 
     <template v-if="activeTab === 'items'">
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Total Items</p><p class="text-2xl font-bold">{{ stats.total }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Available</p><p class="text-2xl font-bold text-green-600">{{ stats.available }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Combos</p><p class="text-2xl font-bold">{{ stats.combos }}</p></div>
-      <div class="bg-white rounded-xl border p-4"><p class="text-sm text-gray-500">Avg Margin</p><p class="text-2xl font-bold text-purple-600">{{ stats.avgMargin.toFixed(1) }}%</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Total Items</p><p class="text-2xl font-bold">{{ stats.total }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Available</p><p class="text-2xl font-bold text-positive-text">{{ stats.available }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Combos</p><p class="text-2xl font-bold">{{ stats.combos }}</p></div>
+      <div class="bg-surface rounded-xl border p-4"><p class="text-sm text-ink-muted">Avg Margin</p><p class="text-2xl font-bold text-chart-5">{{ stats.avgMargin.toFixed(1) }}%</p></div>
     </div>
 
-    <div class="bg-white rounded-xl border overflow-x-auto">
+    <div class="bg-surface rounded-xl border overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-gray-50">
+        <thead class="bg-surface-sunken">
           <tr>
             <th class="text-left p-3">Name</th>
             <th class="text-left p-3">Category</th>
@@ -239,20 +239,20 @@ onUnmounted(() => {
             <td class="p-3 font-medium">{{ item.name }}</td>
             <td class="p-3">{{ item.category }}</td>
             <td class="p-3">{{ item.isCombo ? 'Combo' : 'Single' }}</td>
-            <td class="p-3 font-semibold text-green-700">${{ item.price.toFixed(2) }}</td>
+            <td class="p-3 font-semibold text-positive-text">${{ item.price.toFixed(2) }}</td>
             <td class="p-3">${{ item.cost.toFixed(2) }}</td>
             <td class="p-3">{{ (((item.price - item.cost) / item.price) * 100).toFixed(1) }}%</td>
             <td class="p-3">{{ item.pointsValue || 0 }}</td>
             <td class="p-3">
-              <button class="px-2 py-1 rounded text-xs" :class="item.available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'" @click="toggleAvailability(item)">
+              <button class="px-2 py-1 rounded-md text-xs" :class="item.available ? 'bg-positive/10 text-positive-text' : 'bg-surface-sunken text-ink-muted'" @click="toggleAvailability(item)">
                 {{ item.available ? 'Available' : 'Unavailable' }}
               </button>
-              <span v-if="item.soldOut && item.available" class="ml-2 text-xs text-red-600">Sold out</span>
+              <span v-if="item.soldOut && item.available" class="ml-2 text-xs text-danger">Sold out</span>
             </td>
             <td class="p-3">
               <div class="flex gap-2">
-                <button class="px-2 py-1 border rounded" @click="openEdit(item)">Edit</button>
-                <button class="px-2 py-1 border border-red-300 text-red-600 rounded" @click="removeItem(item)">Delete</button>
+                <button class="c-btn c-btn--secondary c-btn--sm" @click="openEdit(item)">Edit</button>
+                <button class="c-btn c-btn--danger c-btn--sm" @click="removeItem(item)">Delete</button>
               </div>
             </td>
           </tr>
@@ -262,33 +262,33 @@ onUnmounted(() => {
     </template>
 
     <div v-if="modalOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl border w-full max-w-xl p-4 space-y-3">
+      <div class="bg-surface rounded-xl border w-full max-w-xl p-4 space-y-3">
         <h2 class="font-semibold text-lg">{{ editingId ? 'Edit Menu Item' : 'Add Menu Item' }}</h2>
 
         <div>
           <label class="block text-sm font-medium mb-1">Item Name *</label>
-          <input v-model="form.name" class="w-full border rounded px-3 py-2" placeholder="Enter item name" />
+          <input v-model="form.name" class="c-input" placeholder="Enter item name" />
         </div>
 
         <div>
           <label class="block text-sm font-medium mb-1">Category *</label>
-          <input v-model="form.category" class="w-full border rounded px-3 py-2" placeholder="Enter category" />
+          <input v-model="form.category" class="c-input" placeholder="Enter category" />
         </div>
 
         <div class="grid grid-cols-2 gap-2">
           <div>
             <label class="block text-sm font-medium mb-1">Price *</label>
-            <input v-model.number="form.price" type="number" step="0.01" class="w-full border rounded px-3 py-2" placeholder="0.00" />
+            <input v-model.number="form.price" type="number" step="0.01" class="c-input" placeholder="0.00" />
           </div>
           <div>
             <label class="block text-sm font-medium mb-1">Cost *</label>
-            <input v-model.number="form.cost" type="number" step="0.01" class="w-full border rounded px-3 py-2" placeholder="0.00" />
+            <input v-model.number="form.cost" type="number" step="0.01" class="c-input" placeholder="0.00" />
           </div>
         </div>
 
         <div>
           <label class="block text-sm font-medium mb-1">Points Value</label>
-          <input v-model.number="form.pointsValue" type="number" min="0" class="w-full border rounded px-3 py-2" placeholder="0" />
+          <input v-model.number="form.pointsValue" type="number" min="0" class="c-input" placeholder="0" />
         </div>
 
         <div>
@@ -335,14 +335,14 @@ onUnmounted(() => {
         <div class="border rounded-lg p-3 space-y-3">
           <div>
             <label class="block text-sm font-medium">Inventory Impact</label>
-            <p class="text-xs text-gray-500">Select inventory items used per 1 menu item sold.</p>
+            <p class="text-xs text-ink-muted">Select inventory items used per 1 menu item sold.</p>
           </div>
 
           <div class="max-h-52 overflow-y-auto space-y-2">
             <div
               v-for="inventory in state.inventoryItems"
               :key="inventory.id"
-              class="border rounded p-2"
+              class="border rounded-md p-2"
             >
               <div class="flex items-center justify-between gap-2">
                 <label class="flex items-center gap-2 text-sm">
@@ -353,17 +353,17 @@ onUnmounted(() => {
                   />
                   <span>{{ inventory.name }}</span>
                 </label>
-                <span class="text-xs text-gray-500">Stock: {{ inventory.quantity }} {{ inventory.unit }}</span>
+                <span class="text-xs text-ink-muted">Stock: {{ inventory.quantity }} {{ inventory.unit }}</span>
               </div>
 
               <div v-if="isInventoryLinked(inventory.id)" class="mt-2">
-                <label class="block text-xs text-gray-600 mb-1">Quantity used per order item</label>
+                <label class="block text-xs text-ink-muted mb-1">Quantity used per order item</label>
                 <input
                   :value="getInventoryQuantity(inventory.id)"
                   type="number"
                   min="0.01"
                   step="0.01"
-                  class="w-full border rounded px-2 py-1 text-sm"
+                  class="w-full border rounded-md px-2 py-1 text-sm"
                   @input="setInventoryQuantity(inventory.id, $event.target.value)"
                 />
               </div>
@@ -373,8 +373,8 @@ onUnmounted(() => {
 
         <div class="border rounded-lg p-3 space-y-2">
           <p class="text-sm font-medium">Options</p>
-          <p class="text-xs text-gray-500">Pickers shown when this item is ordered, in the order you tick them.</p>
-          <p v-if="!state.optionGroups.length" class="text-xs text-gray-500">No option groups yet — create them in the Options tab.</p>
+          <p class="text-xs text-ink-muted">Pickers shown when this item is ordered, in the order you tick them.</p>
+          <p v-if="!state.optionGroups.length" class="text-xs text-ink-muted">No option groups yet — create them in the Options tab.</p>
           <label v-for="group in state.optionGroups" :key="group.id" class="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -390,13 +390,13 @@ onUnmounted(() => {
           <label class="flex items-center gap-2"><input v-model="form.isCombo" type="checkbox" /> Combo</label>
         </div>
 
-        <div v-if="form.price > 0" class="bg-blue-50 border border-blue-200 rounded p-2 text-sm">
+        <div v-if="form.price > 0" class="bg-primary/10 border border-primary/30 rounded-md p-2 text-sm">
           Profit margin: {{ profitMargin.toFixed(1) }}% · Profit per item: ${{ (form.price - form.cost).toFixed(2) }}
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button class="px-3 py-2 border rounded" @click="modalOpen = false">Cancel</button>
-          <button class="px-3 py-2 bg-blue-600 text-white rounded" @click="saveItem">Save</button>
+          <button class="c-btn c-btn--secondary" @click="modalOpen = false">Cancel</button>
+          <button class="c-btn c-btn--primary" @click="saveItem">Save</button>
         </div>
       </div>
     </div>

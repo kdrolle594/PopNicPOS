@@ -45,25 +45,25 @@
   /* Primary and positive are fill colors; body-size text uses
      --primary-text and --positive-text for WCAG AA compliance. */
   --surface:        #FFFFFF;
-  --surface-sunken: #F7FAFC;
+  --surface-sunken: #F9FAFB;
   --surface-raised: #FFFFFF;
-  --ink:            #0E2434;
-  --ink-muted:      #4A6878;
-  --ink-subtle:     #7C99AA;
-  --line:           #E3EBF1;
-  --primary:        #3A8FBA;
-  --primary-hover:  #2E6F96;
+  --ink:            #111827;
+  --ink-muted:      #4B5563;
+  --ink-subtle:     #6B7280;
+  --line:           #E5E7EB;
+  --primary:        #2563EB;
+  --primary-hover:  #1D4ED8;
   --primary-ink:    #FFFFFF;
   --danger-ink:     #FFFFFF;
-  --primary-text:   #2E6F96; /* text-on-light use of primary; 5.48:1 on white */
+  --primary-text:   #1D4ED8; /* text-on-light use of primary; 6.70:1 on white */
   --secondary:      #8B6B4A;
-  --positive:       #0E9E7A;
-  --positive-text:  #0B7A5F; /* 5.30:1 on white */
+  --positive:       #16A34A;
+  --positive-text:  #15803D; /* 5.02:1 on white */
   --warning:        #B45309;
-  --danger:         #D4183D;
-  --chart-1: #3A8FBA; --chart-2: #8B6B4A; --chart-3: #0E9E7A;
+  --danger:         #DC2626;
+  --chart-1: #2563EB; --chart-2: #8B6B4A; --chart-3: #16A34A;
   --chart-4: #B45309; --chart-5: #6B4FA8;
-  --skel-base: #D5E3EC; /* visible skeleton base; lighter than --line but darker than --surface-sunken */
+  --skel-base: #E5E7EB; /* visible skeleton base; lighter than --line but darker than --surface-sunken */
 
   color-scheme: light;
 }

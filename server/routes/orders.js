@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import {
-  emitNewOrder, emitOrderStatusUpdated, emitOrderDriverAssigned, emitMenuChanged, emitRoutePublishes,
+  emitNewOrder, emitOrderPaid, emitOrderStatusUpdated, emitOrderDriverAssigned, emitMenuChanged, emitRoutePublishes,
 } from '../realtime.js';
 import { resolveLine, OrderLineError, snapshotStock } from '../lib/orderOptions.js';
 import { totalStockNeeds, findShortfall, crossesThreshold } from '../lib/availability.js';
@@ -12,12 +12,20 @@ import {
 } from '../lib/orderRules.js';
 // lockDriver lock order: app_user(driver) -> driver_location -> customer_order.
 import { recalculateDriverRoute, lockDriver } from '../lib/driverRoute.js';
+import { pointsForTotal } from '../../shared/loyalty.js';
+import { isCategoryOpen, hoursFor, DEFAULT_RESTAURANT_TZ } from '../../shared/menuHours.js';
+
+// Restaurant time zone for menu hours (breakfast). Servers usually run in UTC.
+const RESTAURANT_TZ = process.env.RESTAURANT_TZ || DEFAULT_RESTAURANT_TZ;
+import { creditLoyalty } from '../lib/loyalty.js';
 
 const router = Router();
 
 const STAFF_ROLES = new Set(['cashier', 'kitchen', 'manager', 'admin', 'driver']);
 const VALID_STATUSES = new Set(['pending', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
 const VALID_ORDER_TYPES = new Set(['dine_in', 'pickup', 'delivery']);
+const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'digital']);
+const PAYMENT_ROLES = new Set(['cashier', 'manager', 'admin']);
 const MAX_ITEM_QUANTITY = 100;
 
 function parseCustomizations(raw) {
@@ -39,7 +47,15 @@ router.get('/', async (req, res) => {
           'SELECT * FROM customer_order WHERE customer_user_id = ? ORDER BY created_at DESC',
           [req.user.id]
         )
-      : await pool.query('SELECT * FROM customer_order ORDER BY created_at DESC');
+      : await pool.query(
+          `SELECT o.*,
+                  COALESCE(NULLIF(cb.display_name, ''), cb.email) AS created_by_name,
+                  COALESCE(NULLIF(pb.display_name, ''), pb.email) AS paid_by_name
+             FROM customer_order o
+             LEFT JOIN app_user cb ON cb.id = o.created_by_user_id
+             LEFT JOIN app_user pb ON pb.id = o.paid_by_user_id
+            ORDER BY o.created_at DESC`
+        );
 
     let items = [];
     if (orders.length > 0) {
@@ -81,6 +97,13 @@ router.get('/', async (req, res) => {
       paymentMethod: order.payment_method,
       pointsEarned: order.points_earned,
       pointsRedeemed: order.points_redeemed,
+      paidAt: order.paid_at ? new Date(order.paid_at).toISOString() : null,
+      ...(isCustomer ? {} : {
+        createdByUserId: order.created_by_user_id ?? null,
+        createdByName: order.created_by_name ?? null,
+        paidByUserId: order.paid_by_user_id ?? null,
+        paidByName: order.paid_by_name ?? null,
+      }),
       driverName: order.driver_name,
       driverPhone: order.driver_phone,
       ...(isCustomer
@@ -122,7 +145,7 @@ router.get('/drivers', async (req, res) => {
                 WHERE o.driver_user_id = u.id AND o.status = 'out_for_delivery') AS activeStops
          FROM app_user u
          JOIN employee_profile ep ON ep.user_id = u.id
-        WHERE ep.role = 'driver' AND u.is_active = 1
+        WHERE ep.role = 'driver' AND u.is_active = TRUE
         ORDER BY name`
     );
     res.json(rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || null, activeStops: Number(r.activeStops) })));
@@ -150,6 +173,7 @@ router.post('/', async (req, res) => {
       paymentMethod,
       pointsEarned,
       pointsRedeemed,
+      paid,
       items,
     } = req.body;
 
@@ -211,9 +235,18 @@ router.post('/', async (req, res) => {
     let optionData = { groups: new Map(), attachments: new Map() };
     if (menuItemIds.length > 0) {
       const [menuRows] = await conn.query(
-        'SELECT id, name, price, available FROM menu_item WHERE id IN (?)', [menuItemIds]
+        'SELECT id, name, category, price, available FROM menu_item WHERE id IN (?)', [menuItemIds]
       );
       for (const r of menuRows) menuMap.set(r.id, r);
+      const closed = menuRows.find((r) => !isCategoryOpen(r.category, new Date(), RESTAURANT_TZ));
+      if (closed) {
+        await conn.rollback();
+        const hours = hoursFor(closed.category);
+        return res.status(409).json({
+          error: `${closed.name} is only served ${hours.label}`,
+          menuItemId: closed.id,
+        });
+      }
       const [recipeRows] = await conn.query(
         'SELECT menu_item_id, inventory_item_id, quantity_used FROM menu_item_inventory WHERE menu_item_id IN (?)',
         [menuItemIds]
@@ -294,21 +327,28 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ error: 'Insufficient inventory', inventoryItemId: shortId });
     }
 
-    // Server-authoritative order number with retry on UNIQUE collision
-    let orderNumber, orderId;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const [[{ next }]] = await conn.query(
-          'SELECT COALESCE(MAX(order_number), 0) + 1 AS next FROM customer_order'
-        );
-        const [orderResult] = await conn.query(
-          `INSERT INTO customer_order
-             (order_number, order_type, status, total, customer_user_id, customer_name, customer_phone,
-              table_number, delivery_address, delivery_lat, delivery_lng,
-              notes, payment_method, points_earned, points_redeemed)
-           VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            next,
+    // Customers earn points on what they spend; they are credited when the
+    // order is completed. Staff orders keep the POS bookkeeping value.
+    const pointsEarnedFinal = isStaff ? safePointsEarned : pointsForTotal(serverTotal);
+    // Staff can take payment while placing the order. Otherwise the order
+    // stays unpaid until a cashier takes payment (PUT /:id/payment).
+    const paidNow = isStaff && paid === true && paymentMethod != null;
+    if (isStaff && paid === true && !VALID_PAYMENT_METHODS.has(paymentMethod)) {
+      await conn.rollback();
+      return res.status(400).json({ error: `paymentMethod must be one of: ${[...VALID_PAYMENT_METHODS].join(', ')}` });
+    }
+    const paidAt = paidNow ? new Date() : null;
+
+    // Order numbers come from a database sequence (customer_order_number_seq).
+    const [orderResult] = await conn.query(
+      `INSERT INTO customer_order
+         (order_type, status, total, customer_user_id, customer_name, customer_phone,
+          table_number, delivery_address, delivery_lat, delivery_lng,
+          notes, payment_method, points_earned, points_redeemed,
+          created_by_user_id, paid_by_user_id, paid_at)
+       VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id, order_number`,
+      [
             orderType || 'dine_in',
             serverTotal,
             req.user?.id || null,
@@ -320,17 +360,15 @@ router.post('/', async (req, res) => {
             lng,
             notes || null,
             paymentMethod || null,
-            safePointsEarned,
+            pointsEarnedFinal,
             safePointsRedeemed,
-          ]
-        );
-        orderNumber = next;
-        orderId = orderResult.insertId;
-        break;
-      } catch (e) {
-        if (e.code !== 'ER_DUP_ENTRY' || attempt === 2) throw e;
-      }
-    }
+            req.user?.id || null,
+            paidNow ? req.user.id : null,
+            paidAt,
+      ]
+    );
+    const orderId = orderResult.insertId;
+    const orderNumber = orderResult.rows[0].order_number;
 
     // Insert order line items
     for (const item of items) {
@@ -381,8 +419,13 @@ router.post('/', async (req, res) => {
       deliveryLng: lng,
       notes: notes || null,
       paymentMethod: paymentMethod || null,
-      pointsEarned: safePointsEarned,
+      pointsEarned: pointsEarnedFinal,
       pointsRedeemed: safePointsRedeemed,
+      paidAt: paidAt ? paidAt.toISOString() : null,
+      createdByUserId: req.user?.id || null,
+      createdByName: req.user?.name || null,
+      paidByUserId: paidNow ? req.user.id : null,
+      paidByName: paidNow ? req.user?.name || null : null,
       createdAt: new Date().toISOString(),
       completedAt: null,
       items: items.map((i) => ({
@@ -496,6 +539,7 @@ router.put('/:id/status', async (req, res) => {
         'UPDATE customer_order SET status = ?, completed_at = ? WHERE id = ?',
         [status, completedAt, orderId]
       );
+      await creditLoyalty(conn, orderId);
     } else {
       await conn.query('UPDATE customer_order SET status = ? WHERE id = ?', [status, orderId]);
     }
@@ -518,6 +562,60 @@ router.put('/:id/status', async (req, res) => {
       completedAt: completedAt ?? null,
       route: routeResult && current.driver_user_id === req.user.id ? routeResult.route : null,
     });
+  } catch (err) {
+    await conn.rollback();
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+// PUT /api/orders/:id/payment — a cashier takes payment for an unpaid order.
+// Any cashier can take payment, not only the one who entered the order; the
+// order keeps both names.
+router.put('/:id/payment', async (req, res) => {
+  if (!PAYMENT_ROLES.has(req.user?.role)) {
+    return res.status(403).json({ error: 'Only cashiers, managers and admins can take payment' });
+  }
+  const { paymentMethod } = req.body;
+  if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+    return res.status(400).json({ error: `paymentMethod must be one of: ${[...VALID_PAYMENT_METHODS].join(', ')}` });
+  }
+  const orderId = Number(req.params.id);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[order]] = await conn.query(
+      'SELECT status, paid_at FROM customer_order WHERE id = ? FOR UPDATE', [orderId]
+    );
+    if (!order) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    if (order.status === 'cancelled') {
+      await conn.rollback();
+      return res.status(409).json({ error: 'This order was cancelled' });
+    }
+    if (order.paid_at) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'This order is already paid' });
+    }
+    const paidAt = new Date();
+    await conn.query(
+      'UPDATE customer_order SET payment_method = ?, paid_by_user_id = ?, paid_at = ? WHERE id = ?',
+      [paymentMethod, req.user.id, paidAt, orderId]
+    );
+    await conn.commit();
+    const payment = {
+      id: orderId,
+      paymentMethod,
+      paidAt: paidAt.toISOString(),
+      paidByUserId: req.user.id,
+      paidByName: req.user.name || null,
+    };
+    await emitOrderPaid(payment);
+    res.json(payment);
   } catch (err) {
     await conn.rollback();
     console.error(err);

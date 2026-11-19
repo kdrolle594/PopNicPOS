@@ -1,60 +1,66 @@
 import 'dotenv/config';
-import mysql from 'mysql2/promise';
+import pg from 'pg';
+import { toPg, mapError, shapeResult } from './lib/sql.js';
 
-const serviceUri = process.env.MYSQL_URI;
+// Postgres (Supabase). The routes were written against mysql2, so this module
+// keeps that API: query(sql, params) with `?` placeholders resolves to
+// [rows] for reads and [{ insertId, affectedRows, rows }] for writes, and
+// getConnection() gives a client with beginTransaction/commit/rollback/release.
 
-// Prefer verified TLS: set MYSQL_CA to the Aiven CA certificate (PEM contents,
-// or a base64-encoded PEM for env-var friendliness). Without it we fall back
-// to unverified TLS, which encrypts but is open to man-in-the-middle.
+// BIGINT ids and COUNT(*) arrive as strings by default; the app compares ids
+// as numbers (all well under 2^53). NUMERIC stays a string, as with mysql2.
+pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
+
+const connectionString = process.env.DATABASE_URL;
+
+// Prefer verified TLS: set DATABASE_CA to the Supabase CA certificate (PEM, or
+// base64 PEM). Without it TLS still encrypts but the certificate is not checked.
 function sslConfig() {
-  const ca = process.env.MYSQL_CA;
+  const ca = process.env.DATABASE_CA;
   if (!ca) {
-    console.warn('MYSQL_CA not set — TLS certificate verification is DISABLED for MySQL.');
+    console.warn('DATABASE_CA not set — TLS certificate verification is DISABLED for Postgres.');
     return { rejectUnauthorized: false };
   }
-  const pem = ca.includes('-----BEGIN')
-    ? ca
-    : Buffer.from(ca, 'base64').toString('utf8');
+  const pem = ca.includes('-----BEGIN') ? ca : Buffer.from(ca, 'base64').toString('utf8');
   return { ca: pem, rejectUnauthorized: true };
 }
 
-let poolConfig;
-if (serviceUri) {
-  poolConfig = {
-    uri: serviceUri,
-    ssl: sslConfig(),
-    waitForConnections: true,
-    connectionLimit: 3,
-    queueLimit: 0,
-    dateStrings: false,
-    timezone: 'Z',
-  };
-} else {
-  poolConfig = {
-    host: process.env.MYSQL_HOST,
-    port: Number(process.env.MYSQL_PORT) || 3306,
-    user: process.env.MYSQL_USER,
-    password: process.env.MYSQL_PASSWORD,
-    database: process.env.MYSQL_DATABASE || 'defaultdb',
-    ssl: sslConfig(),
-    waitForConnections: true,
-    connectionLimit: 3,
-    queueLimit: 0,
-    dateStrings: false,
-    timezone: 'Z',
-  };
-}
+const pgPool = new pg.Pool({
+  connectionString,
+  ssl: connectionString && !/localhost|127\.0\.0\.1/.test(connectionString) ? sslConfig() : false,
+  max: 3,
+  idleTimeoutMillis: 10_000,
+});
+// Timestamps are TIMESTAMPTZ, so values round-trip as exact instants whatever
+// the session time zone is.
 
-// Log the target host (never credentials) so deploy logs show which
-// provider/instance this environment actually connects to.
 try {
-  const host = serviceUri
-    ? new URL(serviceUri).host
-    : `${poolConfig.host}:${poolConfig.port}`;
-  console.log(`MySQL target host: ${host}`);
-} catch {
-  console.warn('MySQL target host could not be parsed from MYSQL_URI');
+  if (connectionString) console.log(`Postgres target host: ${new URL(connectionString).host}`);
+} catch { /* unparsable URL; pg reports it on first use */ }
+
+async function run(client, sql, params) {
+  const { text, values } = toPg(sql, params);
+  try {
+    return shapeResult(await client.query(text, values));
+  } catch (err) {
+    throw mapError(err);
+  }
 }
 
-const pool = mysql.createPool(poolConfig);
+function wrapClient(client) {
+  return {
+    query: (sql, params) => run(client, sql, params),
+    beginTransaction: () => client.query('BEGIN'),
+    commit: () => client.query('COMMIT'),
+    rollback: () => client.query('ROLLBACK').catch(() => {}),
+    release: () => client.release(),
+  };
+}
+
+const pool = {
+  query: (sql, params) => run(pgPool, sql, params),
+  getConnection: async () => wrapClient(await pgPool.connect()),
+  end: () => pgPool.end(),
+};
+
 export default pool;

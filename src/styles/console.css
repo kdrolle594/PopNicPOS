@@ -1,0 +1,197 @@
+/* ─────────────────────────────────────────────────────────────
+   Console (staff) page kit. Same tokens and shapes as the
+   storefront, tuned for the compact density of ConsoleShell.
+   ───────────────────────────────────────────────────────────── */
+
+.c-page {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 1440px;
+}
+@media (max-width: 639px) {
+  .c-page { padding: var(--space-4); padding-top: var(--space-14); }
+}
+
+.c-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.c-title {
+  margin: 0;
+  font-size: var(--text-h1);
+  line-height: var(--leading-h1);
+  font-weight: var(--weight-h1);
+  letter-spacing: var(--tracking-h1);
+  color: var(--ink);
+}
+.c-sub { margin: var(--space-1) 0 0; color: var(--ink-muted); }
+
+.c-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--card-pad, 14px);
+}
+.c-card--flush { padding: 0; overflow: hidden; }
+
+.c-section-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.c-muted  { color: var(--ink-muted); }
+.c-subtle { color: var(--ink-subtle); }
+.c-small  { font-size: var(--text-small); }
+.c-caption { font-size: var(--text-caption); }
+.c-num    { font-variant-numeric: tabular-nums; }
+.c-strong { font-weight: var(--weight-semibold); }
+.c-primary-text  { color: var(--primary-text); }
+.c-positive-text { color: var(--positive-text); }
+.c-danger-text   { color: var(--danger); }
+
+/* Inputs */
+.c-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+.c-input,
+.c-select,
+.c-textarea {
+  width: 100%;
+  min-height: var(--control-h, 34px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  transition: border-color var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
+}
+.c-textarea { padding: var(--space-2) var(--space-3); resize: vertical; }
+.c-input:focus,
+.c-select:focus,
+.c-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.c-input::placeholder,
+.c-textarea::placeholder { color: var(--ink-subtle); }
+
+/* Segmented tabs */
+.c-tabs {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.c-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.c-tab:hover { color: var(--ink); }
+.c-tab--active { background: var(--primary); color: var(--primary-ink); }
+.c-tab--active:hover { color: var(--primary-ink); }
+.c-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Tables */
+.c-table { width: 100%; border-collapse: collapse; font-size: var(--text-small); }
+.c-table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-muted);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--line);
+}
+.c-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.c-table tr:last-child td { border-bottom: 0; }
+.c-table-wrap { overflow-x: auto; }
+
+/* Inline notice */
+.c-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-small);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  color: var(--ink);
+}
+.c-notice--warning {
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+.c-notice--danger {
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--danger);
+}
+
+/* Small icon/text button used inside rows */
+.c-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  color: var(--primary-text);
+  cursor: pointer;
+}
+.c-link:hover { text-decoration: underline; }
+.c-link--danger { color: var(--danger); }
+.c-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+
+/* Buttons for console screens that don't use UiButton (same look). */
+.c-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-h, 34px);
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease);
+}
+.c-btn:disabled { opacity: .55; cursor: not-allowed; }
+.c-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.c-btn--sm { min-height: calc(var(--control-h, 34px) - 6px); padding: 0 var(--space-3); font-size: var(--text-small); }
+.c-btn--primary { background: var(--primary); color: var(--primary-ink); }
+.c-btn--primary:hover:not(:disabled) { background: var(--primary-hover); }
+.c-btn--secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.c-btn--secondary:hover:not(:disabled) { background: var(--surface-sunken); }
+.c-btn--danger { background: var(--surface); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.c-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.c-input--sm { min-height: calc(var(--control-h, 34px) - 6px); padding: 0 var(--space-2); font-size: var(--text-small); }
+.c-page--narrow { max-width: 896px; margin-inline: auto; width: 100%; }

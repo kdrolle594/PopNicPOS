@@ -5,7 +5,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-database/
+database/*
+!database/schema.sql
 guidelines/
 
 promote-admin.js
@@ -62,7 +63,7 @@ dist/
 .env
 .env.example
 
-# Aiven CA certificate
+# Database CA certificates
 ca.pem
 
 # MCP config (contains credentials)

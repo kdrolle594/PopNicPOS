@@ -1,14 +1,33 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { getTier } from '../../shared/loyalty.js';
 
 const router = Router();
 
-function getTier(points) {
-  if (points >= 1000) return 'platinum';
-  if (points >= 500) return 'gold';
-  if (points >= 250) return 'silver';
-  return 'bronze';
+// Recent orders that earned or spent points, newest first. Points count once
+// the order is completed (pending ones show as not yet credited).
+async function pointsHistory(userId) {
+  const [rows] = await pool.query(
+    `SELECT id, order_number, status, total, points_earned, points_redeemed, points_credited, created_at
+       FROM customer_order
+      WHERE customer_user_id = ? AND status <> 'cancelled'
+        AND (points_earned > 0 OR points_redeemed > 0)
+      ORDER BY created_at DESC
+      LIMIT 20`,
+    [userId]
+  );
+  return rows.map((o) => ({
+    orderId: o.id,
+    orderNumber: o.order_number,
+    status: o.status,
+    total: Number(o.total),
+    pointsEarned: o.points_earned,
+    pointsRedeemed: o.points_redeemed,
+    credited: Boolean(o.points_credited),
+    createdAt: o.created_at,
+  }));
 }
+
 
 // GET /api/customers/me — the authenticated customer's own profile
 router.get('/me', async (req, res) => {
@@ -37,6 +56,7 @@ router.get('/me', async (req, res) => {
       ordersCount: r.orders_count,
       joinedDate: r.joined_date,
       lastVisit: r.last_visit,
+      history: await pointsHistory(req.user.id),
     });
   } catch (err) {
     console.error(err);

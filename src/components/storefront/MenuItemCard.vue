@@ -4,6 +4,8 @@ import UiBadge from '../ui/UiBadge.vue';
 
 const props = defineProps({
   item: { type: Object, required: true },
+  // Set when the item's category is outside its serving hours, e.g. "Served 6–11 AM".
+  closedLabel: { type: String, default: '' },
 });
 
 const emit = defineEmits(['add', 'customize']);
@@ -17,9 +19,9 @@ function getInitial(name) {
   <UiCard
     interactive
     :padded="false"
-    :class="{ 'mic--sold-out': item.soldOut }"
-    :aria-disabled="item.soldOut || undefined"
-    @click="!item.soldOut && emit('customize', item)"
+    :class="{ 'mic--sold-out': item.soldOut || closedLabel }"
+    :aria-disabled="item.soldOut || closedLabel || undefined"
+    @click="!item.soldOut && !closedLabel && emit('customize', item)"
   >
     <!-- 16:9 image / gradient fallback -->
     <div class="mic__media" aria-hidden="true">
@@ -42,6 +44,7 @@ function getInitial(name) {
       <div class="mic__footer">
         <span class="mic__price">${{ Number(item.price).toFixed(2) }}</span>
         <UiBadge v-if="item.soldOut" tone="neutral">Sold out</UiBadge>
+        <UiBadge v-else-if="closedLabel" tone="neutral">{{ closedLabel }}</UiBadge>
         <button
           v-else
           type="button"
