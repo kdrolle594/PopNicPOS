@@ -32,6 +32,13 @@ const isStaff = computed(() => STAFF_ROLES.includes(auth.state.role));
 const showStorefront = computed(
   () => !auth0.isAuthenticated.value || !isStaff.value || currentView.value === 'customer'
 );
+// Staff previewing the storefront get a way back to their console.
+function exitStorefront() {
+  storefrontView.value = 'browse';
+  currentView.value = auth.defaultView();
+}
+provide('exitStorefront', computed(() => (isStaff.value ? exitStorefront : null)));
+
 const ALL_MENU_ITEMS = [
   { id: 'dashboard', label: 'Dashboard'       },
   { id: 'pos',       label: 'POS Terminal'    },
