@@ -17,6 +17,9 @@ const auth = useAuthStore();
 const cart = useCartStore();
 
 const storefrontView = inject('storefrontView');
+// Set for staff previewing the storefront; null for guests and customers.
+const exitStorefront = inject('exitStorefront', computed(() => null));
+const isStaffPreview = computed(() => Boolean(exitStorefront.value));
 // Injected refs are auto-unwrapped in <script setup> templates, so .value === undefined.
 // Use a computed for reads and a function for template writes.
 const view = computed(() => storefrontView.value);
@@ -39,6 +42,16 @@ const userInitials = computed(() => {
       <span class="sf-wordmark">PopNic</span>
 
       <div class="sf-topbar__actions">
+        <UiButton
+          v-if="isStaffPreview"
+          variant="secondary"
+          size="sm"
+          @click="exitStorefront()"
+        >
+          <UiIcon name="dashboard" :size="16" />
+          Staff view
+        </UiButton>
+
         <!-- Cart button -->
         <button
           class="sf-cart-btn"
@@ -60,7 +73,7 @@ const userInitials = computed(() => {
           Sign in
         </UiButton>
         <button
-          v-else
+          v-else-if="!isStaffPreview"
           class="sf-avatar"
           :class="{ 'sf-avatar--active': view === 'rewards' }"
           type="button"
@@ -82,7 +95,7 @@ const userInitials = computed(() => {
       <MenuBrowser v-if="view === 'browse'" />
       <CheckoutPanel v-else-if="view === 'checkout'" />
       <OrderTracker v-else-if="view === 'orders'" />
-      <RewardsPanel v-else-if="view === 'rewards' && !auth.isGuest.value" />
+      <RewardsPanel v-else-if="view === 'rewards' && !auth.isGuest.value && !isStaffPreview" />
     </main>
 
     <!-- Mobile bottom bar (≤ 639px) -->
@@ -124,7 +137,7 @@ const userInitials = computed(() => {
       </button>
 
       <button
-        v-if="!auth.isGuest.value"
+        v-if="!auth.isGuest.value && !isStaffPreview"
         class="sf-bottom-btn"
         type="button"
         :class="{ 'sf-bottom-btn--active': view === 'rewards' }"
